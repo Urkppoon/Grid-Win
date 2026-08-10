@@ -39,7 +39,9 @@ test("renders the T+1 calculator route", async () => {
   const response = await render("/calculator");
   assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(html, /grid win · A股 T\+1 网格设计/);
+  assert.match(html, /<h1>grid win<\/h1>/);
+  assert.doesNotMatch(html, /用基准价生成上下网格/);
+  assert.doesNotMatch(html, /价格波动不移动网格/);
   assert.match(html, /单边行情承受力/);
   assert.match(html, /昨日可卖底仓/);
 });

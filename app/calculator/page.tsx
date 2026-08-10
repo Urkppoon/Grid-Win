@@ -224,11 +224,8 @@ export default function CalculatorPage() {
     <main className="gc-app">
       <header className="gc-hero">
         <div>
-          <span className="gc-eyebrow">grid win · A股 T+1 网格设计</span>
-          <h1>先算能不能跑，再看每格赚多少</h1>
-          <p>
-            用基准价生成上下网格，同时检查现金、昨日可卖底仓和今日锁定仓位。
-          </p>
+          <span className="gc-eyebrow">A股 T+1 网格设计</span>
+          <h1>grid win</h1>
         </div>
         <div className="gc-status">
           <span className="gc-status-dot" />
@@ -243,7 +240,6 @@ export default function CalculatorPage() {
               <span>01</span>
               <h2>价格与触发规则</h2>
             </div>
-            <p>价格波动不移动网格；成交后是否滚动基准由你决定。</p>
           </div>
 
           <div className="gc-fields gc-fields-three">
