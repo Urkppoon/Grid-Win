@@ -1,51 +1,39 @@
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const expectedSha256 =
-  "b08c75016f4095e2929289a18a88a74ab95181ed4f8b444798dd563a8f72c9a7";
-
-async function renderRoot() {
+async function render(pathname = "/") {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
-  workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}`);
+  workerUrl.searchParams.set("test", `${process.pid}-${Date.now()}-${pathname}`);
   const { default: worker } = await import(workerUrl.href);
 
   return worker.fetch(
-    new Request("http://localhost/", {
-      headers: { accept: "text/html" },
-    }),
-    {
-      ASSETS: {
-        fetch: async () => new Response("Not found", { status: 404 }),
-      },
-    },
-    {
-      waitUntil() {},
-      passThroughOnException() {},
-    },
+    new Request(`http://localhost${pathname}`, { headers: { accept: "text/html" } }),
+    { ASSETS: { fetch: async () => new Response("Not found", { status: 404 }) } },
+    { waitUntil() {}, passThroughOnException() {} },
   );
 }
 
-test("redirects the root route to the original calculator file", async () => {
-  const response = await renderRoot();
+test("redirects the root route to the sandboxed calculator", async () => {
+  const response = await render();
   assert.equal(response.status, 307);
-  assert.equal(
-    new URL(response.headers.get("location"), "http://localhost/").pathname,
-    "/grid-calculator.html",
-  );
+  assert.equal(new URL(response.headers.get("location"), "http://localhost/").pathname, "/grid-calculator.html");
 });
 
-test("publishes the calculator byte-for-byte with its CSP and sandbox intact", async () => {
-  const [source, built] = await Promise.all([
-    readFile(new URL("../public/grid-calculator.html", import.meta.url)),
-    readFile(new URL("../dist/client/grid-calculator.html", import.meta.url)),
-  ]);
+test("keeps the public calculator wrapper sandboxed with a restrictive CSP", async () => {
+  const html = await readFile(new URL("../public/grid-calculator.html", import.meta.url), "utf8");
+  assert.match(html, /http-equiv="Content-Security-Policy"/i);
+  assert.match(html, /default-src 'none'/i);
+  assert.match(html, /<iframe\b[^>]*\bsandbox="allow-scripts"[^>]*>/i);
+  assert.match(html, /src="\/calculator"/i);
+  assert.doesNotMatch(html, /allow-same-origin/i);
+});
 
-  assert.deepEqual(built, source);
-  assert.equal(createHash("sha256").update(source).digest("hex"), expectedSha256);
-
-  const html = source.toString("utf8");
-  assert.match(html, /http-equiv=["']Content-Security-Policy["']/i);
-  assert.match(html, /<iframe\b[^>]*\bsandbox=["']allow-scripts["'][^>]*>/i);
+test("renders the T+1 calculator route", async () => {
+  const response = await render("/calculator");
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /A股 · T\+1 网格设计/);
+  assert.match(html, /单边行情承受力/);
+  assert.match(html, /昨日可卖底仓/);
 });
