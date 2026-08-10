@@ -21,12 +21,18 @@ test("redirects the root route to the sandboxed calculator", async () => {
 });
 
 test("keeps the public calculator wrapper sandboxed with a restrictive CSP", async () => {
-  const html = await readFile(new URL("../public/grid-calculator.html", import.meta.url), "utf8");
+  const [html, embedded] = await Promise.all([
+    readFile(new URL("../public/grid-calculator.html", import.meta.url), "utf8"),
+    readFile(new URL("../public/calculator-embedded.html", import.meta.url), "utf8"),
+  ]);
   assert.match(html, /http-equiv="Content-Security-Policy"/i);
   assert.match(html, /default-src 'none'/i);
   assert.match(html, /<iframe\b[^>]*\bsandbox="allow-scripts"[^>]*>/i);
-  assert.match(html, /src="\/calculator"/i);
+  assert.match(html, /src="\/calculator-embedded\.html"/i);
   assert.doesNotMatch(html, /allow-same-origin/i);
+  assert.match(embedded, /script-src 'unsafe-inline'/i);
+  assert.doesNotMatch(embedded, /<script\s+src=/i);
+  assert.doesNotMatch(embedded, /<link\b[^>]*stylesheet/i);
 });
 
 test("renders the T+1 calculator route", async () => {
