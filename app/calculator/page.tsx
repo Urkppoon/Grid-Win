@@ -224,7 +224,7 @@ export default function CalculatorPage() {
     <main className="gc-app">
       <header className="gc-hero">
         <div>
-          <span className="gc-eyebrow">A股 · T+1 网格设计</span>
+          <span className="gc-eyebrow">grid win · A股 T+1 网格设计</span>
           <h1>先算能不能跑，再看每格赚多少</h1>
           <p>
             用基准价生成上下网格，同时检查现金、昨日可卖底仓和今日锁定仓位。
