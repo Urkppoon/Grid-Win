@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+  <title>grid win</title>
+  <style>
+    :root{color-scheme:light;--ink:#17231f;--muted:#69746f;--line:#dfe5e1;--bg:#f4f6f3;--card:#fffffff0;--green:#166b4f;--green-soft:#e6f2ec;--red:#b84b3f;--red-soft:#faece9;--gold:#b38236;--gold-soft:#f8f1df}
+    *{box-sizing:border-box}html,body{margin:0;min-height:100%;background:var(--bg);color:var(--ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}button,input,select{font:inherit}
+    .app{min-height:100vh;padding:34px clamp(16px,4vw,58px) 52px;background:radial-gradient(circle at 8% 0%,#166b4f1c,transparent 28%),radial-gradient(circle at 95% 12%,#b3823617,transparent 26%),var(--bg)}
+    .hero,.layout{max-width:1460px;margin-left:auto;margin-right:auto}.hero{margin-bottom:24px;display:flex;justify-content:space-between;align-items:flex-end;gap:24px}.eyebrow{display:inline-block;margin-bottom:9px;color:var(--green);font-size:12px;font-weight:800;letter-spacing:.15em}.hero h1{margin:0;max-width:780px;font-family:Georgia,"Songti SC",serif;font-size:clamp(33px,5vw,60px);font-weight:500;line-height:1.06;letter-spacing:-.04em}.hero p{margin:13px 0 0;color:var(--muted);font-size:14px}.status{display:flex;align-items:center;gap:8px;padding:9px 13px;border:1px solid #166b4f33;border-radius:99px;background:#ffffffc2;color:var(--green);font-size:12px;font-weight:700}.status i{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 4px #166b4f1c}
+    .layout{display:grid;grid-template-columns:minmax(330px,410px) minmax(0,1fr);align-items:start;gap:19px}.panel{border:1px solid #17231f17;border-radius:21px;background:var(--card);box-shadow:0 18px 55px #1e30290f}.controls{position:sticky;top:16px;padding:23px}.results{min-width:0;display:grid;gap:18px}
+    .heading{margin-bottom:17px}.heading-row{display:flex;justify-content:space-between;align-items:center;gap:16px}.heading>div,.heading-row>div{display:flex;align-items:center;gap:9px}.heading b{color:var(--gold);font:700 10px/1 ui-monospace,monospace;letter-spacing:.08em}.heading h2{margin:0;font-size:16px}.heading p{margin:7px 0 0;color:var(--muted);font-size:11px;line-height:1.5}.heading-row p{margin:0;text-align:right}.fields{display:grid;gap:12px}.fields+.fields{margin-top:12px}.three{grid-template-columns:repeat(3,minmax(0,1fr))}.two{grid-template-columns:repeat(2,minmax(0,1fr))}.field{display:flex;min-width:0;flex-direction:column;gap:6px}.field span{color:#48534f;font-size:11px;font-weight:700}.field small,.position small{color:#8a938f;font-size:9px;line-height:1.4}.field input,.field select{width:100%;min-height:42px;border:1px solid var(--line);border-radius:10px;outline:none;background:#f9faf8;color:var(--ink);padding:0 10px}.field input:focus,.field select:focus{border-color:#166b4f94;background:white;box-shadow:0 0 0 3px #166b4f17}
+    .segmented{display:grid;grid-template-columns:1fr 1fr;gap:4px;margin:14px 0 12px;padding:4px;border-radius:11px;background:#edf0ed}.segmented button{min-height:36px;border:0;border-radius:8px;background:transparent;color:var(--muted);cursor:pointer;font-size:12px;font-weight:700}.segmented button.active{background:white;color:var(--ink);box-shadow:0 3px 12px #17231f14}.divider{height:1px;margin:22px 0;background:var(--line)}.position{min-height:70px;display:flex;flex-direction:column;justify-content:center;padding:10px 12px;border:1px solid #b3823633;border-radius:11px;background:var(--gold-soft)}.position span{color:#705a33;font-size:10px}.position strong{margin:2px 0;font-size:19px}.error{display:none;margin-top:15px;padding:10px 12px;border-radius:10px;background:var(--red-soft);color:#8d3028;font-size:11px}.error.show{display:block}
+    .summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:11px}.summary article{min-height:112px;padding:17px;border:1px solid #17231f14;border-radius:17px;background:#ffffffcc}.summary span,.summary small{display:block;color:var(--muted);font-size:10px}.summary strong{display:block;margin:9px 0 5px;font-size:24px;letter-spacing:-.03em}.block{padding:23px}.pill{padding:6px 9px;border-radius:99px;background:var(--green-soft);color:var(--green);font-size:10px;font-weight:800}
+    .capacity-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px}.capacity{padding:16px;border:1px solid #edd1cb;border-radius:14px;background:var(--red-soft)}.capacity.safe{border-color:#c9dfd4;background:var(--green-soft)}.capacity-title{display:flex;justify-content:space-between;align-items:baseline}.capacity-title span{font-size:11px;font-weight:800}.capacity-title strong{font-size:20px}.meter{height:6px;margin-top:11px;overflow:hidden;border-radius:99px;background:#b84b3f1f}.meter i{display:block;height:100%;background:var(--red);border-radius:inherit}.capacity.safe .meter{background:#166b4f1f}.capacity.safe .meter i{background:var(--green)}.capacity p{margin:11px 0 4px;color:var(--muted);font-size:10px}.capacity em{display:block;color:#7e3129;font-size:10px;font-style:normal;font-weight:800;line-height:1.45}.capacity.safe em{color:var(--green)}.t1{display:none;margin-top:11px;padding:11px 13px;border-left:3px solid var(--gold);background:#fbf7eb;color:#655438;font-size:10px;line-height:1.55}.t1.show{display:block}.t1 strong{margin-right:7px}
+    .ladder{display:grid;grid-template-columns:repeat(auto-fit,minmax(122px,1fr));gap:7px}.level{padding:12px;border-radius:12px;background:var(--green-soft);color:var(--green)}.level.sell{background:var(--red-soft);color:var(--red)}.level.base{background:var(--gold-soft);color:#795d2d}.level span,.level small{display:block;font-size:9px}.level strong{display:block;margin:6px 0 3px;color:var(--ink);font-size:19px}.remainder{display:none;justify-content:space-between;gap:12px;margin-top:11px;padding:10px 12px;border-radius:10px;background:#f4f2ec;color:#6c654f;font-size:10px}.remainder.show{display:flex}.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:10px;font-variant-numeric:tabular-nums}th,td{padding:10px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}th{color:var(--muted);font-weight:700}th:first-child,td:first-child{text-align:left}tbody tr:last-child td{border-bottom:0}.action{display:inline-flex;padding:5px 7px;border-radius:7px;font-weight:800}.action.buy{background:var(--green-soft);color:var(--green)}.action.sell{background:var(--red-soft);color:var(--red)}.negative{color:var(--red);font-weight:800}.foot{padding:0 8px;color:#7d8782;font-size:9px;line-height:1.6;text-align:center}
+    @media(max-width:1080px){.layout{grid-template-columns:1fr}.controls{position:static}}@media(max-width:700px){.app{padding:23px 13px 38px}.hero{align-items:flex-start;flex-direction:column}.three,.two,.capacity-grid{grid-template-columns:1fr}.summary{grid-template-columns:repeat(2,minmax(0,1fr))}.controls,.block{padding:17px;border-radius:17px}.heading-row{align-items:flex-start;flex-direction:column}.heading-row p{text-align:left}.remainder.show{flex-direction:column}}
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header class="hero">
+      <div><span class="eyebrow">A股 T+1 网格设计</span><h1>grid win</h1></div>
+      <div class="status"><i></i>固定价格层 · 成交驱动</div>
+    </header>
+    <section class="layout">
+      <aside class="panel controls">
+        <div class="heading"><div><b>01</b><h2>价格与触发规则</h2></div></div>
+        <div class="fields three">
+          <label class="field"><span>价格下限（元）</span><input id="lower" type="number" min="0.01" step="0.01" value="120"></label>
+          <label class="field"><span>初始基准价（元）</span><input id="base" type="number" min="0.01" step="0.01" value="126"></label>
+          <label class="field"><span>价格上限（元）</span><input id="upper" type="number" min="0.01" step="0.01" value="133"></label>
+        </div>
+        <div class="fields two">
+          <label class="field"><span>基准价来源</span><select id="source"><option>手动输入</option><option>最新价</option><option>持仓成本价</option><option>昨收价</option><option>开盘价</option></select><small>当前不接行情，仅记录选取口径</small></label>
+          <label class="field"><span>成交后基准</span><select id="baselineMode"><option value="rolling">滚动到成交价</option><option value="fixed">保持初始基准</option></select></label>
+        </div>
+        <div class="segmented"><button id="priceMode" class="active" type="button">按价格</button><button id="ratioMode" type="button">按比例</button></div>
+        <div class="fields two">
+          <label class="field"><span id="sellLabel">上涨卖出价差（元）</span><input id="sellStep" type="number" min="0.01" step="0.01" value="3"></label>
+          <label class="field"><span id="buyLabel">下跌买入价差（元）</span><input id="buyStep" type="number" min="0.01" step="0.01" value="3"></label>
+        </div>
+        <div class="divider"></div>
+        <div class="heading"><div><b>02</b><h2>资金与T+1仓位</h2></div><p>1手按100股计算，当日买入不计入当日可卖。</p></div>
+        <div class="fields two">
+          <label class="field"><span>每格交易（手）</span><input id="lots" type="number" min="1" step="1" value="1"></label>
+          <label class="field"><span>估算往返成本率（%）</span><input id="cost" type="number" min="0" step="0.01" value="0.15"></label>
+          <label class="field"><span>可用现金（元）</span><input id="cash" type="number" min="0" step="100" value="100000"></label>
+          <label class="field"><span>昨日可卖底仓（手）</span><input id="sellable" type="number" min="0" step="1" value="4"></label>
+          <label class="field"><span>今日买入锁定（手）</span><input id="locked" type="number" min="0" step="1" value="0"><small>仅计入总持仓，不增加今日卖出能力</small></label>
+          <div class="position"><span>当前总持仓</span><strong id="totalLots">4手</strong><small id="sellableText">其中可卖 4 手</small></div>
+        </div>
+        <div id="error" class="error" role="alert"></div>
+      </aside>
+
+      <section class="results" aria-live="polite">
+        <div class="summary">
+          <article><span>完整网格</span><strong id="gridCount">4</strong><small id="lineCount">5 条价格线</small></article>
+          <article><span>下跌买入</span><strong id="buyCount">2格</strong><small id="buyCover">资金可覆盖 2 格</small></article>
+          <article><span>上涨卖出</span><strong id="sellCount">2格</strong><small id="sellCover">底仓可覆盖 2 格</small></article>
+          <article><span>每格数量</span><strong id="quantity">100股</strong><small id="quantityLots">1手 × 100股</small></article>
+        </div>
+        <div class="panel block">
+          <div class="heading heading-row"><div><b>03</b><h2>单边行情承受力</h2></div><span id="modePill" class="pill">成交后滚动</span></div>
+          <div class="capacity-grid">
+            <div id="downCapacity" class="capacity"><div class="capacity-title"><span>连续下跌</span><strong id="downFraction">0/0格</strong></div><div class="meter"><i id="downMeter"></i></div><p id="downNeed"></p><em id="downWarning"></em></div>
+            <div id="upCapacity" class="capacity"><div class="capacity-title"><span>连续上涨</span><strong id="upFraction">0/0格</strong></div><div class="meter"><i id="upMeter"></i></div><p id="upNeed"></p><em id="upWarning"></em></div>
+          </div>
+          <div id="t1" class="t1"><strong>T+1提醒</strong><span id="t1Text"></span></div>
+        </div>
+        <div class="panel block">
+          <div class="heading heading-row"><div><b>04</b><h2>价格层与买卖区域</h2></div><p>触及一层只执行一次，成交后才更新状态。</p></div>
+          <div id="ladder" class="ladder"></div>
+          <div id="remainder" class="remainder"><strong>边界余量未组成完整网格</strong><span id="remainderText"></span></div>
+        </div>
+        <div class="panel block">
+          <div class="heading heading-row"><div><b>05</b><h2>逐格金额与收益</h2></div><p>净收益按输入的往返成本率估算。</p></div>
+          <div class="table-wrap"><table><thead><tr><th>初始触发</th><th>买入 → 卖出</th><th>买入金额</th><th>卖出金额</th><th>毛利润</th><th>毛收益率</th><th>估算净利润</th><th>估算净收益率</th></tr></thead><tbody id="rows"></tbody></table></div>
+        </div>
+        <footer class="foot">本工具用于策略规划，不连接实时行情，也不构成投资建议。条件触发不等于成交；涨跌停、跳空和流动性都可能造成实际成交偏差。</footer>
+      </section>
+    </section>
+  </main>
+  <script>
+    (() => {
+      const $ = id => document.getElementById(id);
+      const inputs = ['lower','base','upper','sellStep','buyStep','lots','cost','cash','sellable','locked','baselineMode'].map($);
+      let mode = 'price';
+      const roundPrice = value => Math.round((value + Number.EPSILON) * 100) / 100;
+      const money = value => new Intl.NumberFormat('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2}).format(value);
+      const whole = value => new Intl.NumberFormat('zh-CN',{maximumFractionDigits:0}).format(value);
+      const pct = value => `${value.toFixed(3)}%`;
+
+      function setMode(next) {
+        mode = next;
+        $('priceMode').classList.toggle('active', mode === 'price');
+        $('ratioMode').classList.toggle('active', mode === 'ratio');
+        $('sellLabel').textContent = mode === 'price' ? '上涨卖出价差（元）' : '上涨卖出比例（%）';
+        $('buyLabel').textContent = mode === 'price' ? '下跌买入价差（元）' : '下跌买入比例（%）';
+        update();
+      }
+
+      function update() {
+        const lower=+$('lower').value, base=+$('base').value, upper=+$('upper').value;
+        const sellStep=+$('sellStep').value, buyStep=+$('buyStep').value, lots=+$('lots').value;
+        const cost=+$('cost').value, cash=+$('cash').value, sellable=+$('sellable').value, locked=+$('locked').value;
+        const values=[lower,base,upper,sellStep,buyStep,lots,cost,cash,sellable,locked];
+        let error='';
+        if(!values.every(Number.isFinite)) error='请填写有效数字。';
+        else if(lower<=0||upper<=lower) error='价格下限必须大于0，并且上限必须高于下限。';
+        else if(base<lower||base>upper) error='初始基准价必须位于价格区间内。';
+        else if(sellStep<=0||buyStep<=0) error=mode==='price'?'买卖价差必须大于0。':'买卖比例必须大于0。';
+        else if(mode==='ratio'&&(sellStep>=100||buyStep>=100)) error='比例必须大于0且小于100%。';
+        else if(!Number.isInteger(lots)||lots<1) error='每格手数必须是至少1手的整数。';
+        else if(cost<0||cash<0||sellable<0||locked<0) error='资金、持仓和成本率不能为负数。';
+        $('error').textContent=error; $('error').classList.toggle('show',!!error); if(error) return;
+
+        const down=[],up=[],seenDown=new Set(),seenUp=new Set();
+        for(let i=1;i<=200;i++){
+          const price=roundPrice(mode==='price'?base-buyStep*i:base*Math.pow(1-buyStep/100,i));
+          if(price<lower-1e-7) break; if(price>=base||seenDown.has(price)) continue; seenDown.add(price); down.push(price);
+        }
+        for(let i=1;i<=200;i++){
+          const price=roundPrice(mode==='price'?base+sellStep*i:base*Math.pow(1+sellStep/100,i));
+          if(price>upper+1e-7) break; if(price<=base||seenUp.has(price)) continue; seenUp.add(price); up.push(price);
+        }
+        const levels=[...down].reverse().concat(roundPrice(base),up), quantity=lots*100, rows=[];
+        for(let i=0;i<levels.length-1;i++){
+          const low=levels[i],high=levels[i+1],side=high<=base+1e-7?'buy':'sell';
+          const gross=(high-low)*quantity,grossRate=(high/low-1)*100,net=gross-low*quantity*(cost/100),netRate=grossRate-cost;
+          rows.push({low,high,side,trigger:side==='buy'?low:high,buyAmount:low*quantity,sellAmount:high*quantity,gross,grossRate,net,netRate});
+        }
+        const buyRows=rows.filter(r=>r.side==='buy').sort((a,b)=>b.trigger-a.trigger),sellRows=rows.filter(r=>r.side==='sell').sort((a,b)=>a.trigger-b.trigger);
+        let left=cash,buyCapacity=0; for(const row of buyRows){if(left+1e-7<row.buyAmount)break;left-=row.buyAmount;buyCapacity++}
+        const sellCapacity=Math.min(sellRows.length,Math.floor(sellable/lots));
+        const downNeed=buyRows.reduce((sum,row)=>sum+row.buyAmount,0),sellNeed=sellRows.length*lots;
+        const lowRemainder=Math.max(0,(levels[0]??base)-lower),highRemainder=Math.max(0,upper-(levels.at(-1)??base));
+
+        $('totalLots').textContent=`${whole(sellable+locked)}手`; $('sellableText').textContent=`其中可卖 ${whole(sellable)} 手`;
+        $('gridCount').textContent=rows.length; $('lineCount').textContent=`${levels.length} 条价格线`;
+        $('buyCount').textContent=`${buyRows.length}格`; $('buyCover').textContent=`资金可覆盖 ${buyCapacity} 格`;
+        $('sellCount').textContent=`${sellRows.length}格`; $('sellCover').textContent=`底仓可覆盖 ${sellCapacity} 格`;
+        $('quantity').textContent=`${whole(quantity)}股`; $('quantityLots').textContent=`${lots}手 × 100股`;
+        $('modePill').textContent=$('baselineMode').value==='rolling'?'成交后滚动':'固定基准';
+
+        const downSafe=buyCapacity>=buyRows.length,upSafe=sellCapacity>=sellRows.length;
+        $('downCapacity').classList.toggle('safe',downSafe); $('upCapacity').classList.toggle('safe',upSafe);
+        $('downFraction').textContent=`${buyCapacity}/${buyRows.length}格`; $('upFraction').textContent=`${sellCapacity}/${sellRows.length}格`;
+        $('downMeter').style.width=`${buyRows.length?Math.min(100,buyCapacity/buyRows.length*100):100}%`;
+        $('upMeter').style.width=`${sellRows.length?Math.min(100,sellCapacity/sellRows.length*100):100}%`;
+        $('downNeed').textContent=`覆盖全部下方买单需 ${money(downNeed)} 元。`;
+        $('upNeed').textContent=`覆盖全部上方卖单需 ${sellNeed} 手昨日可卖底仓。`;
+        $('downWarning').textContent=buyRows[buyCapacity]?`资金将在触及 ${money(buyRows[buyCapacity].trigger)} 元前不足。`:'当前现金可以覆盖全部下方网格。';
+        $('upWarning').textContent=sellRows[sellCapacity]?`底仓将在触及 ${money(sellRows[sellCapacity].trigger)} 元前耗尽，继续上涨可能踏空。`:'当前底仓可以覆盖全部上方网格。';
+        $('t1').classList.toggle('show',locked>0); $('t1Text').textContent=`今日买入的 ${locked} 手已锁定；即使盘中反弹，也不能补充今天的卖出额度。`;
+
+        $('ladder').innerHTML=[...levels].reverse().map(price=>{const zone=Math.abs(price-base)<1e-7?'base':price>base?'sell':'buy';const label=zone==='base'?'初始基准':zone==='sell'?'上涨卖出':'下跌买入';return `<div class="level ${zone}"><span>${label}</span><strong>${money(price)}</strong><small>${zone==='base'?'等待相邻格触发':`${lots}手`}</small></div>`}).join('');
+        $('remainder').classList.toggle('show',lowRemainder>1e-7||highRemainder>1e-7); $('remainderText').textContent=`下限侧 ${money(lowRemainder)} 元 · 上限侧 ${money(highRemainder)} 元`;
+        $('rows').innerHTML=[...rows].reverse().map(r=>`<tr><td><span class="action ${r.side}">${r.side==='buy'?'下跌买入':'上涨卖出'}</span></td><td>${money(r.low)} → ${money(r.high)}</td><td>${money(r.buyAmount)}</td><td>${money(r.sellAmount)}</td><td>${money(r.gross)}</td><td>${pct(r.grossRate)}</td><td class="${r.net<0?'negative':''}">${money(r.net)}</td><td class="${r.netRate<0?'negative':''}">${pct(r.netRate)}</td></tr>`).join('');
+      }
+
+      $('priceMode').addEventListener('click',()=>setMode('price')); $('ratioMode').addEventListener('click',()=>setMode('ratio'));
+      inputs.forEach(input=>input.addEventListener('input',update)); update();
+    })();
+  </script>
+</body>
+</html>
