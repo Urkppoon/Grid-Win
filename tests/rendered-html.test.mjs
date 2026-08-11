@@ -14,10 +14,10 @@ async function render(pathname = "/") {
   );
 }
 
-test("redirects the root route to the sandboxed calculator", async () => {
+test("redirects the root route to the React calculator", async () => {
   const response = await render();
   assert.equal(response.status, 307);
-  assert.equal(new URL(response.headers.get("location"), "http://localhost/").pathname, "/grid-calculator.html");
+  assert.equal(new URL(response.headers.get("location"), "http://localhost/").pathname, "/calculator");
 });
 
 test("keeps the public calculator wrapper sandboxed with a restrictive CSP", async () => {

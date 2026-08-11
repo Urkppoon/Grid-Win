@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import MarketPanel from "../components/market-panel";
 
 type GridMode = "price" | "ratio";
 type BaselineMode = "rolling" | "fixed";
@@ -53,20 +54,63 @@ function Field({
   );
 }
 
+function NumericInput({
+  value,
+  onValueChange,
+  min,
+  step,
+}: {
+  value: number;
+  onValueChange: (value: number) => void;
+  min?: number;
+  step?: number;
+}) {
+  const [draft, setDraft] = useState(Number.isFinite(value) ? String(value) : "");
+  const commit = () => {
+    const parsed = Number(draft);
+    if (draft.trim() === "") {
+      onValueChange(Number.NaN);
+      return;
+    }
+    if (!Number.isFinite(parsed)) {
+      onValueChange(Number.NaN);
+      return;
+    }
+    onValueChange(parsed);
+  };
+  return <input type="number" min={min} step={step} value={draft} onChange={(event) => setDraft(event.target.value)} onBlur={commit} onKeyDown={(event) => { if (event.key === "Enter") { event.currentTarget.blur(); } }} />;
+}
+
+function OptionalNumericInput({ value, onValueChange, min = 0, step = 1, placeholder }: { value: number | null; onValueChange: (value: number | null) => void; min?: number; step?: number; placeholder: string }) {
+  const [draft, setDraft] = useState(value == null ? "" : String(value));
+  const commit = () => {
+    if (draft.trim() === "") { onValueChange(null); return; }
+    const parsed = Number(draft);
+    if (!Number.isFinite(parsed) || parsed < min) { setDraft(value == null ? "" : String(value)); return; }
+    onValueChange(parsed);
+  };
+  return <input type="number" min={min} step={step} placeholder={placeholder} value={draft} onChange={(event) => setDraft(event.target.value)} onBlur={commit} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />;
+}
+
 export default function CalculatorPage() {
-  const [lower, setLower] = useState(120);
-  const [upper, setUpper] = useState(133);
-  const [base, setBase] = useState(126);
+  const [lower, setLower] = useState<number>(Number.NaN);
+  const [upper, setUpper] = useState<number>(Number.NaN);
+  const [base, setBase] = useState<number>(Number.NaN);
   const [baseSource, setBaseSource] = useState("manual");
   const [mode, setMode] = useState<GridMode>("price");
-  const [sellStep, setSellStep] = useState(3);
-  const [buyStep, setBuyStep] = useState(3);
-  const [lotsPerGrid, setLotsPerGrid] = useState(1);
-  const [roundTripCost, setRoundTripCost] = useState(0.15);
-  const [cash, setCash] = useState(100000);
-  const [sellableLots, setSellableLots] = useState(4);
-  const [lockedLots, setLockedLots] = useState(0);
+  const [sellStep, setSellStep] = useState<number>(Number.NaN);
+  const [buyStep, setBuyStep] = useState<number>(Number.NaN);
+  const [lotsPerGrid, setLotsPerGrid] = useState<number>(Number.NaN);
+  const [roundTripCost, setRoundTripCost] = useState<number>(Number.NaN);
+  const [cash, setCash] = useState<number>(Number.NaN);
+  const [sellableLots, setSellableLots] = useState<number>(Number.NaN);
+  const [lockedLots, setLockedLots] = useState<number>(Number.NaN);
+  const [maxHoldingLots, setMaxHoldingLots] = useState<number | null>(null);
+  const [minHoldingLots, setMinHoldingLots] = useState<number | null>(null);
   const [baselineMode, setBaselineMode] = useState<BaselineMode>("rolling");
+  const [showPositionDetails, setShowPositionDetails] = useState(false);
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
+  const totalLots = sellableLots + lockedLots;
 
   const result = useMemo(() => {
     const values = [
@@ -102,6 +146,15 @@ export default function CalculatorPage() {
     }
     if (roundTripCost < 0 || cash < 0 || sellableLots < 0 || lockedLots < 0) {
       return { error: "资金、持仓和成本率不能为负数。" } as const;
+    }
+    if ((minHoldingLots != null && !Number.isInteger(minHoldingLots)) || (maxHoldingLots != null && !Number.isInteger(maxHoldingLots))) {
+      return { error: "持仓上下限必须为整数手数。" } as const;
+    }
+    if (minHoldingLots != null && minHoldingLots < 0 || maxHoldingLots != null && maxHoldingLots < 0) {
+      return { error: "持仓上下限不能为负数。" } as const;
+    }
+    if (minHoldingLots != null && maxHoldingLots != null && minHoldingLots > maxHoldingLots) {
+      return { error: "最小持仓不能高于最大持仓。" } as const;
     }
 
     const down: number[] = [];
@@ -170,13 +223,16 @@ export default function CalculatorPage() {
 
     let cashLeft = cash;
     let affordableBuyGrids = 0;
+    const maxAdditionalLots = maxHoldingLots == null ? Number.POSITIVE_INFINITY : Math.max(0, maxHoldingLots - totalLots);
+    const positionBuyCapacity = Number.isFinite(maxAdditionalLots) ? Math.floor(maxAdditionalLots / lotsPerGrid) : Number.POSITIVE_INFINITY;
     for (const row of buyRows) {
-      if (cashLeft + EPSILON < row.buyAmount) break;
+      if (cashLeft + EPSILON < row.buyAmount || affordableBuyGrids >= positionBuyCapacity) break;
       cashLeft -= row.buyAmount;
       affordableBuyGrids += 1;
     }
 
-    const sellCapacity = Math.floor(sellableLots / lotsPerGrid);
+    const sellableAboveFloor = Math.max(0, totalLots - (minHoldingLots ?? 0));
+    const sellCapacity = Math.min(Math.floor(sellableLots / lotsPerGrid), Math.floor(sellableAboveFloor / lotsPerGrid));
     const executableSellGrids = Math.min(sellRows.length, sellCapacity);
     const requiredDownCash = buyRows.reduce((sum, row) => sum + row.buyAmount, 0);
     const requiredSellableLots = sellRows.length * lotsPerGrid;
@@ -201,6 +257,8 @@ export default function CalculatorPage() {
       upperRemainder,
       firstMissedBuy: buyRows[affordableBuyGrids],
       firstMissedSell: sellRows[executableSellGrids],
+      positionBuyCapacity,
+      sellCapacity,
     } as const;
   }, [
     lower,
@@ -213,23 +271,20 @@ export default function CalculatorPage() {
     cash,
     sellableLots,
     lockedLots,
+    maxHoldingLots,
+    minHoldingLots,
+    totalLots,
     mode,
   ]);
 
   const hasError = Boolean(result.error);
   const valid = hasError ? null : result;
-  const totalLots = sellableLots + lockedLots;
-
   return (
     <main className="gc-app">
       <header className="gc-hero">
         <div>
           <span className="gc-eyebrow">A股 T+1 网格设计</span>
-          <h1>grid win</h1>
-        </div>
-        <div className="gc-status">
-          <span className="gc-status-dot" />
-          固定价格层 · 成交驱动
+          <h1>Grid Win</h1>
         </div>
       </header>
 
@@ -238,19 +293,19 @@ export default function CalculatorPage() {
           <div className="gc-section-heading">
             <div>
               <span>01</span>
-              <h2>价格与触发规则</h2>
+              <h2>触发条件</h2>
             </div>
           </div>
 
           <div className="gc-fields gc-fields-three">
             <Field label="价格下限（元）">
-              <input type="number" min="0.01" step="0.01" value={lower} onChange={(event) => setLower(Number(event.target.value))} />
+              <NumericInput min={0.01} step={0.01} value={lower} onValueChange={setLower} />
             </Field>
             <Field label="初始基准价（元）">
-              <input type="number" min="0.01" step="0.01" value={base} onChange={(event) => setBase(Number(event.target.value))} />
+              <NumericInput min={0.01} step={0.01} value={base} onValueChange={setBase} />
             </Field>
             <Field label="价格上限（元）">
-              <input type="number" min="0.01" step="0.01" value={upper} onChange={(event) => setUpper(Number(event.target.value))} />
+              <NumericInput min={0.01} step={0.01} value={upper} onValueChange={setUpper} />
             </Field>
           </div>
 
@@ -279,10 +334,10 @@ export default function CalculatorPage() {
 
           <div className="gc-fields gc-fields-two">
             <Field label={`上涨卖出${mode === "price" ? "价差（元）" : "比例（%）"}`}>
-              <input type="number" min="0.01" step="0.01" value={sellStep} onChange={(event) => setSellStep(Number(event.target.value))} />
+              <NumericInput min={0.01} step={0.01} value={sellStep} onValueChange={setSellStep} />
             </Field>
             <Field label={`下跌买入${mode === "price" ? "价差（元）" : "比例（%）"}`}>
-              <input type="number" min="0.01" step="0.01" value={buyStep} onChange={(event) => setBuyStep(Number(event.target.value))} />
+              <NumericInput min={0.01} step={0.01} value={buyStep} onValueChange={setBuyStep} />
             </Field>
           </div>
 
@@ -291,91 +346,114 @@ export default function CalculatorPage() {
           <div className="gc-section-heading">
             <div>
               <span>02</span>
-              <h2>资金与T+1仓位</h2>
+              <h2>持仓管理</h2>
             </div>
-            <p>1手按100股计算，当日买入不计入当日可卖。</p>
+            <p>1手按100股计算；持仓上下限留空则不限制。</p>
           </div>
 
           <div className="gc-fields gc-fields-two">
             <Field label="每格交易（手）">
-              <input type="number" min="1" step="1" value={lotsPerGrid} onChange={(event) => setLotsPerGrid(Number(event.target.value))} />
-            </Field>
-            <Field label="估算往返成本率（%）">
-              <input type="number" min="0" step="0.01" value={roundTripCost} onChange={(event) => setRoundTripCost(Number(event.target.value))} />
+              <NumericInput min={1} step={1} value={lotsPerGrid} onValueChange={setLotsPerGrid} />
             </Field>
             <Field label="可用现金（元）">
-              <input type="number" min="0" step="100" value={cash} onChange={(event) => setCash(Number(event.target.value))} />
+              <NumericInput min={0} step={100} value={cash} onValueChange={setCash} />
             </Field>
-            <Field label="昨日可卖底仓（手）">
-              <input type="number" min="0" step="1" value={sellableLots} onChange={(event) => setSellableLots(Number(event.target.value))} />
+            <Field label="最大持仓（手）" hint="达到上限后不再触发买入">
+              <OptionalNumericInput min={0} step={1} value={maxHoldingLots} onValueChange={setMaxHoldingLots} placeholder="不设上限" />
             </Field>
-            <Field label="今日买入锁定（手）" hint="仅计入总持仓，不增加今日卖出能力">
-              <input type="number" min="0" step="1" value={lockedLots} onChange={(event) => setLockedLots(Number(event.target.value))} />
+            <Field label="最小持仓（手）" hint="触及下限后不再触发卖出">
+              <OptionalNumericInput min={0} step={1} value={minHoldingLots} onValueChange={setMinHoldingLots} placeholder="不设下限" />
             </Field>
             <div className="gc-position-card">
               <span>当前总持仓</span>
-              <strong>{integer(totalLots)}手</strong>
-              <small>其中可卖 {integer(sellableLots)} 手</small>
+              <strong>{Number.isFinite(totalLots) ? `${integer(totalLots)}手` : "—"}</strong>
+              <small>{Number.isFinite(sellableLots) ? `其中可卖 ${integer(sellableLots)} 手` : "填写 T+1 持仓后显示可卖数量"}</small>
             </div>
           </div>
+
+          <button type="button" className="gc-inline-toggle" onClick={() => setShowPositionDetails((prev) => !prev)} aria-expanded={showPositionDetails}>
+            <span>T+1 持仓明细</span><span className="gc-inline-toggle-badge">{showPositionDetails ? "收起 ▲" : "展开 ▼"}</span>
+          </button>
+          {showPositionDetails ? <div className="gc-fields gc-fields-two gc-revealed-fields">
+            <Field label="昨日可卖底仓（手）">
+              <NumericInput min={0} step={1} value={sellableLots} onValueChange={setSellableLots} />
+            </Field>
+            <Field label="今日买入锁定（手）" hint="仅计入总持仓，不增加今日卖出能力">
+              <NumericInput min={0} step={1} value={lockedLots} onValueChange={setLockedLots} />
+            </Field>
+          </div> : null}
+
+          <button type="button" className="gc-inline-toggle" onClick={() => setShowAdvancedSettings((prev) => !prev)} aria-expanded={showAdvancedSettings}>
+            <span>交易成本设置</span><span className="gc-inline-toggle-badge">{showAdvancedSettings ? "收起 ▲" : "展开 ▼"}</span>
+          </button>
+          {showAdvancedSettings ? <div className="gc-fields gc-revealed-fields">
+            <Field label="估算往返成本率（%）">
+              <NumericInput min={0} step={0.01} value={roundTripCost} onValueChange={setRoundTripCost} />
+            </Field>
+          </div> : null}
 
           {hasError ? <div className="gc-error" role="alert">{result.error}</div> : null}
         </aside>
 
         <section className="gc-results" aria-live="polite">
+          <MarketPanel gridParams={{ lowerLimit: lower, basePrice: base, upperLimit: upper, buyStep, sellStep, mode }} />
+
           {valid ? (
             <>
-              <div className="gc-summary-grid">
-                <article>
-                  <span>完整网格</span>
-                  <strong>{valid.rows.length}</strong>
-                  <small>{valid.levels.length} 条价格线</small>
-                </article>
-                <article>
-                  <span>下跌买入</span>
-                  <strong>{valid.buyRows.length}格</strong>
-                  <small>资金可覆盖 {valid.affordableBuyGrids} 格</small>
-                </article>
-                <article>
-                  <span>上涨卖出</span>
-                  <strong>{valid.sellRows.length}格</strong>
-                  <small>底仓可覆盖 {valid.executableSellGrids} 格</small>
-                </article>
-                <article>
-                  <span>每格数量</span>
-                  <strong>{integer(valid.quantity)}股</strong>
-                  <small>{lotsPerGrid}手 × 100股</small>
-                </article>
-              </div>
-
               <div className="gc-panel gc-capacity">
                 <div className="gc-section-heading gc-section-heading-row">
                   <div>
-                    <span>03</span>
-                    <h2>单边行情承受力</h2>
+                    <span>04</span>
+                    <h2>行情推演</h2>
                   </div>
                   <div className="gc-mode-pill">{baselineMode === "rolling" ? "成交后滚动" : "固定基准"}</div>
                 </div>
 
+                <section className="gc-strategy-overview" aria-label="策略概览">
+                  <span className="gc-overview-label">策略概览</span>
+                  <div className="gc-summary-grid">
+                    <article>
+                      <span>完整网格</span>
+                      <strong>{valid.rows.length}</strong>
+                      <small>{valid.levels.length} 条价格线</small>
+                    </article>
+                    <article>
+                      <span>下跌买入</span>
+                      <strong>{valid.buyRows.length}格</strong>
+                      <small>资金可覆盖 {valid.affordableBuyGrids} 格</small>
+                    </article>
+                    <article>
+                      <span>上涨卖出</span>
+                      <strong>{valid.sellRows.length}格</strong>
+                      <small>底仓可覆盖 {valid.executableSellGrids} 格</small>
+                    </article>
+                    <article>
+                      <span>每格数量</span>
+                      <strong>{integer(valid.quantity)}股</strong>
+                      <small>{lotsPerGrid}手 × 100股</small>
+                    </article>
+                  </div>
+                </section>
+
                 <div className="gc-capacity-grid">
-                  <div className="gc-capacity-item" data-safe={valid.affordableBuyGrids >= valid.buyRows.length}>
+                  <div className="gc-capacity-item" data-side="buy" data-safe={valid.affordableBuyGrids >= valid.buyRows.length}>
                     <div className="gc-capacity-title">
                       <span>连续下跌</span>
                       <strong>{valid.affordableBuyGrids}/{valid.buyRows.length}格</strong>
                     </div>
                     <div className="gc-meter"><i style={{ width: `${valid.buyRows.length ? Math.min(100, valid.affordableBuyGrids / valid.buyRows.length * 100) : 100}%` }} /></div>
                     <p>覆盖全部下方买单需 {money(valid.requiredDownCash)} 元。</p>
-                    {valid.firstMissedBuy ? <b>资金将在触及 {money(valid.firstMissedBuy.trigger)} 元前不足。</b> : <b>当前现金可以覆盖全部下方网格。</b>}
+                    {valid.firstMissedBuy ? <b>{valid.affordableBuyGrids === valid.positionBuyCapacity ? "最大持仓将在下一格买入前触及上限。" : `资金将在触及 ${money(valid.firstMissedBuy.trigger)} 元前不足。`}</b> : <b>当前现金和持仓上限可以覆盖全部下方网格。</b>}
                   </div>
 
-                  <div className="gc-capacity-item" data-safe={valid.executableSellGrids >= valid.sellRows.length}>
+                  <div className="gc-capacity-item" data-side="sell" data-safe={valid.executableSellGrids >= valid.sellRows.length}>
                     <div className="gc-capacity-title">
                       <span>连续上涨</span>
                       <strong>{valid.executableSellGrids}/{valid.sellRows.length}格</strong>
                     </div>
                     <div className="gc-meter"><i style={{ width: `${valid.sellRows.length ? Math.min(100, valid.executableSellGrids / valid.sellRows.length * 100) : 100}%` }} /></div>
                     <p>覆盖全部上方卖单需 {valid.requiredSellableLots} 手昨日可卖底仓。</p>
-                    {valid.firstMissedSell ? <b>底仓将在触及 {money(valid.firstMissedSell.trigger)} 元前耗尽，继续上涨可能踏空。</b> : <b>当前底仓可以覆盖全部上方网格。</b>}
+                    {valid.firstMissedSell ? <b>{valid.executableSellGrids === valid.sellCapacity ? "最小持仓将在下一格卖出前触及下限。" : `底仓将在触及 ${money(valid.firstMissedSell.trigger)} 元前耗尽，继续上涨可能踏空。`}</b> : <b>当前底仓和最小持仓限制可以覆盖全部上方网格。</b>}
                   </div>
                 </div>
 
@@ -390,23 +468,25 @@ export default function CalculatorPage() {
               <div className="gc-panel gc-ladder-panel">
                 <div className="gc-section-heading gc-section-heading-row">
                   <div>
-                    <span>04</span>
+                    <span>05</span>
                     <h2>价格层与买卖区域</h2>
                   </div>
                   <p>触及一层只执行一次，成交后才更新状态。</p>
                 </div>
 
-                <div className="gc-ladder">
-                  {[...valid.levels].reverse().map((price) => {
-                    const zone = Math.abs(price - base) < EPSILON ? "base" : price > base ? "sell" : "buy";
-                    return (
-                      <div className="gc-level" data-zone={zone} key={price}>
-                        <span>{zone === "base" ? "初始基准" : zone === "sell" ? "上涨卖出" : "下跌买入"}</span>
-                        <strong>{money(price)}</strong>
-                        <small>{zone === "base" ? "等待相邻格触发" : `${lotsPerGrid}手`}</small>
-                      </div>
-                    );
-                  })}
+                <div className="gc-ladder-scroll">
+                  <div className="gc-ladder">
+                    {[...valid.levels].reverse().map((price) => {
+                      const zone = Math.abs(price - base) < EPSILON ? "base" : price > base ? "sell" : "buy";
+                      return (
+                        <div className="gc-level" data-zone={zone} key={price}>
+                          <span>{zone === "base" ? "初始基准" : zone === "sell" ? "上涨卖出" : "下跌买入"}</span>
+                          <strong>{money(price)}</strong>
+                          <small>{zone === "base" ? "等待相邻格触发" : `${lotsPerGrid}手`}</small>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 {(valid.lowerRemainder > EPSILON || valid.upperRemainder > EPSILON) ? (
@@ -422,8 +502,8 @@ export default function CalculatorPage() {
               <div className="gc-panel gc-table-panel">
                 <div className="gc-section-heading gc-section-heading-row">
                   <div>
-                    <span>05</span>
-                    <h2>逐格金额与收益</h2>
+                    <span>06</span>
+                    <h2>收益预估</h2>
                   </div>
                   <p>净收益按输入的往返成本率估算。</p>
                 </div>
@@ -460,9 +540,6 @@ export default function CalculatorPage() {
                 </div>
               </div>
 
-              <footer className="gc-footnote">
-                本工具用于策略规划，不连接实时行情，也不构成投资建议。条件触发不等于成交；涨跌停、跳空和流动性都可能造成实际成交偏差。
-              </footer>
             </>
           ) : (
             <div className="gc-empty">修正左侧参数后，这里会生成完整的网格与承受力测算。</div>
