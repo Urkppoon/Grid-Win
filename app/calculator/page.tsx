@@ -101,7 +101,7 @@ export default function CalculatorPage() {
   const [sellStep, setSellStep] = useState<number>(Number.NaN);
   const [buyStep, setBuyStep] = useState<number>(Number.NaN);
   const [lotsPerGrid, setLotsPerGrid] = useState<number>(Number.NaN);
-  const [roundTripCost, setRoundTripCost] = useState<number>(Number.NaN);
+  const [roundTripCost, setRoundTripCost] = useState<number>(0.2);
   const [cash, setCash] = useState<number>(Number.NaN);
   const [sellableLots, setSellableLots] = useState<number>(Number.NaN);
   const [lockedLots, setLockedLots] = useState<number>(Number.NaN);

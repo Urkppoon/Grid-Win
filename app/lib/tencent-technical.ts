@@ -14,6 +14,7 @@ export type KlineRow = {
   ma?: Record<string, number | null>;
   boll?: { upper: number | null; middle: number | null; lower: number | null };
   rsi?: Record<string, number | null>;
+  macd?: { dif: number | null; dea: number | null; histogram: number | null };
 };
 
 export type TencentKlineResult = {
@@ -29,7 +30,7 @@ export type TencentKlineResult = {
 
 const DAILY_URL = "http://web.ifzq.gtimg.cn/appstock/app/fqkline/get";
 const MINUTE_URL = "http://ifzq.gtimg.cn/appstock/app/kline/mkline";
-const DEFAULT_INDICATORS = ["ma", "boll", "rsi"];
+const DEFAULT_INDICATORS = ["ma", "boll", "rsi", "macd"];
 
 function numberOrNull(value: unknown): number | null {
   if (value === null || value === undefined || value === "") return null;
@@ -121,6 +122,9 @@ function closes(rows: KlineRow | KlineRow[]): number[] {
 function addIndicators(rows: KlineRow[]): void {
   const closeValues = closes(rows);
   const changes = closeValues.slice(1).map((value, index) => value - closeValues[index]);
+  let ema12: number | null = null;
+  let ema26: number | null = null;
+  let dea: number | null = null;
   rows.forEach((row, index) => {
     const ma: Record<string, number | null> = {};
     for (const period of [5, 10, 20, 60]) {
@@ -151,6 +155,16 @@ function addIndicators(rows: KlineRow[]): void {
       rsi[`rsi${period}`] = losses === 0 ? 100 : round(100 - 100 / (1 + gains / losses), 2);
     }
     row.rsi = rsi;
+
+    if (row.close === null) {
+      row.macd = { dif: null, dea: null, histogram: null };
+    } else {
+      ema12 = ema12 === null ? row.close : ema12 * 11 / 13 + row.close * 2 / 13;
+      ema26 = ema26 === null ? row.close : ema26 * 25 / 27 + row.close * 2 / 27;
+      const dif = ema12 - ema26;
+      dea = dea === null ? dif : dea * 8 / 10 + dif * 2 / 10;
+      row.macd = { dif: round(dif), dea: round(dea), histogram: round(2 * (dif - dea)) };
+    }
   });
 }
 
@@ -159,7 +173,7 @@ function round(value: number, digits = 3): number {
   return Math.round((value + Number.EPSILON) * factor) / factor;
 }
 
-export async function fetchTencentKline(stockCode: string, kType: KType = "day", count = 120): Promise<TencentKlineResult> {
+export async function fetchTencentKline(stockCode: string, kType: KType = "day", count = 200): Promise<TencentKlineResult> {
   const code = normalizeCode(stockCode);
   if (!code) throw new Error("无法识别的股票代码");
   const rows = await fetchRows(code, kType, count);

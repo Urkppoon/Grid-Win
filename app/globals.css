@@ -487,6 +487,7 @@ select { font: inherit; }
 .market-toggle-btn { width: 100%; min-height: 45px; display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; border: 1px solid var(--gc-line); border-radius: 10px; background: #121214; color: var(--gc-ink); font-size: 11px; font-weight: 600; cursor: pointer; transition: background .18s ease, color .18s ease; }
 .market-toggle-btn:hover { background: #18181b; color: var(--gc-ink); }
 .market-echart { width: 100%; height: 480px; background: #121214; }
+.market-volume-macd-chart { height: 360px; }
 .market-rsi-chart { height: 280px; }
 .market-table-wrap { overflow: hidden; margin-top: 16px; border: 1px solid var(--gc-line); border-radius: 12px; background: var(--gc-market-bg); }
 .market-table-scroll { overflow: auto; max-height: 440px; scrollbar-color: #3a3a3c transparent; }
@@ -498,7 +499,7 @@ select { font: inherit; }
 .market-table tbody tr:last-child td { border-bottom: 0; }
 
 @media(max-width:1080px){.market-status-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
-@media(max-width:700px){.gc-market-panel{padding:17px}.market-controls{grid-template-columns:1fr 1fr}.market-controls label:first-child,.market-period-control{grid-column:1/-1}.market-controls button{grid-column:1/-1}.market-period-tabs{overflow-x:auto}.market-period-tabs button{min-width:57px;padding:0 10px}.market-period-tabs select{width:57px;min-width:57px;padding:0 17px 0 8px}.market-status-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.market-echart{height:390px}.market-rsi-chart{height:260px}}
+@media(max-width:700px){.gc-market-panel{padding:17px}.market-controls{grid-template-columns:1fr 1fr}.market-controls label:first-child,.market-period-control{grid-column:1/-1}.market-controls button{grid-column:1/-1}.market-period-tabs{overflow-x:auto}.market-period-tabs button{min-width:57px;padding:0 10px}.market-period-tabs select{width:57px;min-width:57px;padding:0 17px 0 8px}.market-status-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.market-echart{height:390px}.market-volume-macd-chart{height:330px}.market-rsi-chart{height:260px}}
 
 .gc-empty {
   padding: 60px 24px;

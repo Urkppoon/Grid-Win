@@ -7,7 +7,7 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const stockCode = (url.searchParams.get("stock_code") ?? "").trim();
   const kType = (url.searchParams.get("k_type") ?? "day") as KType;
-  const rawCount = Number(url.searchParams.get("num") ?? "120");
+  const rawCount = Number(url.searchParams.get("num") ?? "200");
 
   if (!STOCK_CODE.test(stockCode)) {
     return NextResponse.json({ error: "股票代码格式不正确" }, { status: 400 });

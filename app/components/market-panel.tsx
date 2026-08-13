@@ -237,11 +237,100 @@ function RsiChart({ rows, onDataIndex, onChartInstance }: { rows: KlineRow[]; on
   return <div className="market-echart market-rsi-chart" ref={chartRef} aria-label="RSI相对强弱指标图" />;
 }
 
+function VolumeMacdChart({ rows, quietMode, onDataIndex, onChartInstance }: { rows: KlineRow[]; quietMode: boolean; onDataIndex: (index: number) => void; onChartInstance?: (chart: echarts.ECharts | null) => void }) {
+  const chartRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const element = chartRef.current;
+    if (!element) return;
+    const chart = echarts.init(element, "dark");
+    onChartInstance?.(chart);
+    const dates = rows.map((row) => row.date);
+    const zoomStart = dates.length > 50 ? Math.max(0, Math.round(((dates.length - 50) / dates.length) * 100)) : 0;
+    const upColor = quietMode ? "#8E8E93" : "#FF453A";
+    const downColor = quietMode ? "#3A3A3C" : "#30D158";
+    const axis = (showLabels: boolean) => ({
+      type: "category" as const,
+      data: dates,
+      gridIndex: showLabels ? 1 : 0,
+      axisLine: { lineStyle: { color: "#2C2C2E" } },
+      axisTick: { show: false },
+      axisLabel: { show: showLabels, color: "#8E8E93", fontSize: 10, rotate: dates.length > 60 ? 45 : 0 },
+    });
+    const valueAxis = (gridIndex: number, formatter?: (value: number) => string) => ({
+      type: "value" as const,
+      gridIndex,
+      scale: true,
+      splitNumber: 3,
+      splitLine: { lineStyle: { color: "#1C1C1E" } },
+      axisLine: { lineStyle: { color: "#2C2C2E" } },
+      axisLabel: { color: "#8E8E93", fontSize: 10, formatter },
+      position: "right" as const,
+    });
+    chart.setOption({
+      animation: false,
+      backgroundColor: "#121214",
+      textStyle: { color: "#8E8E93", fontSize: 11, fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'PingFang SC', 'Microsoft YaHei', sans-serif" },
+      title: [
+        { text: "VOLUME", left: 16, top: 7, textStyle: { color: "#8E8E93", fontSize: 10, fontWeight: 700 } },
+        { text: "MACD (12, 26, 9)", left: 16, top: "45%", textStyle: { color: "#8E8E93", fontSize: 10, fontWeight: 700 } },
+      ],
+      legend: { data: ["DIF", "DEA"], top: "44%", right: 72, itemWidth: 14, itemHeight: 2, textStyle: { color: "#8E8E93", fontSize: 10 } },
+      grid: [
+        { top: 30, right: 75, height: "31%", left: 60 },
+        { top: "52%", right: 75, bottom: 56, left: 60 },
+      ],
+      tooltip: {
+        trigger: "axis" as const,
+        axisPointer: { type: "cross" as const, crossStyle: { color: "#8E8E93" } },
+        backgroundColor: "#1C1C1E",
+        borderColor: "#2C2C2E",
+        textStyle: { color: "#F5F5F7", fontSize: 11, fontFamily: "ui-monospace, SFMono-Regular, monospace" },
+        formatter: (raw: unknown) => {
+          const points = (Array.isArray(raw) ? raw : []) as ChartPoint[];
+          const index = points[0]?.dataIndex;
+          const row = index == null ? null : rows[index];
+          if (!row) return "";
+          return `<div style="font-weight:700;margin-bottom:4px">${row.date}</div>成交量: ${volumeText(row.volume)} 手<br/>DIF: ${numberText(row.macd?.dif, 3)}<br/>DEA: ${numberText(row.macd?.dea, 3)}<br/>MACD: ${numberText(row.macd?.histogram, 3)}`;
+        },
+      },
+      xAxis: [axis(false), axis(true)],
+      yAxis: [valueAxis(0, (value) => volumeText(value)), valueAxis(1)],
+      dataZoom: [
+        { type: "inside", xAxisIndex: [0, 1], start: zoomStart, end: 100 },
+        {
+          type: "slider", xAxisIndex: [0, 1], bottom: 10, height: 16,
+          borderColor: "#2C2C2E", backgroundColor: "#121214", fillerColor: "rgba(10, 132, 255, 0.2)",
+          handleStyle: { color: "#0A84FF", borderColor: "#0A84FF" }, moveHandleStyle: { color: "#0A84FF" },
+          selectedDataBackground: { lineStyle: { color: "#0A84FF" }, areaStyle: { color: "#0A84FF33" } },
+          textStyle: { color: "#8E8E93", fontSize: 10 }, start: zoomStart, end: 100,
+        },
+      ],
+      series: [
+        {
+          name: "成交量", type: "bar", xAxisIndex: 0, yAxisIndex: 0, barMaxWidth: 8,
+          data: rows.map((row) => ({ value: row.volume, itemStyle: { color: row.close != null && row.open != null && row.close >= row.open ? upColor : downColor } })),
+        },
+        {
+          name: "MACD", type: "bar", xAxisIndex: 1, yAxisIndex: 1, barMaxWidth: 8,
+          data: rows.map((row) => ({ value: row.macd?.histogram ?? null, itemStyle: { color: (row.macd?.histogram ?? 0) >= 0 ? upColor : downColor } })),
+        },
+        { name: "DIF", type: "line", xAxisIndex: 1, yAxisIndex: 1, data: rows.map((row) => row.macd?.dif ?? null), symbol: "none", lineStyle: { color: quietMode ? "#A1A1AA" : "#FFD60A", width: 1.25 } },
+        { name: "DEA", type: "line", xAxisIndex: 1, yAxisIndex: 1, data: rows.map((row) => row.macd?.dea ?? null), symbol: "none", lineStyle: { color: quietMode ? "#636366" : "#0A84FF", width: 1.25 } },
+      ],
+    });
+    chart.on("click", (params: { dataIndex?: number }) => { if (params.dataIndex != null) onDataIndex(params.dataIndex); });
+    const resize = () => chart.resize();
+    window.addEventListener("resize", resize);
+    return () => { window.removeEventListener("resize", resize); onChartInstance?.(null); chart.dispose(); };
+  }, [rows, quietMode, onDataIndex, onChartInstance]);
+  return <div className="market-echart market-volume-macd-chart" ref={chartRef} aria-label="成交量与MACD指标图，缩放窗口与K线同步" />;
+}
+
 export default function MarketPanel({ gridParams }: { gridParams: GridParams }) {
   const [stockCode, setStockCode] = useState("300408");
   const [kType, setKType] = useState<KType>("m15");
-  const [count, setCount] = useState(120);
-  const [countDraft, setCountDraft] = useState("120");
+  const [count, setCount] = useState(200);
+  const [countDraft, setCountDraft] = useState("200");
   const [data, setData] = useState<TencentKlineResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -250,14 +339,12 @@ export default function MarketPanel({ gridParams }: { gridParams: GridParams }) 
   const requestControllerRef = useRef<AbortController | null>(null);
 
   const klineInstanceRef = useRef<echarts.ECharts | null>(null);
+  const volumeMacdInstanceRef = useRef<echarts.ECharts | null>(null);
   const rsiInstanceRef = useRef<echarts.ECharts | null>(null);
 
   const syncConnectCharts = () => {
-    const kline = klineInstanceRef.current;
-    const rsi = rsiInstanceRef.current;
-    if (kline && rsi) {
-      echarts.connect([kline, rsi]);
-    }
+    const charts = [klineInstanceRef.current, volumeMacdInstanceRef.current, rsiInstanceRef.current].filter((chart): chart is echarts.ECharts => chart !== null);
+    if (charts.length > 1) echarts.connect(charts);
   };
 
   const handleKlineChartInstance = useCallback((chart: echarts.ECharts | null) => {
@@ -267,6 +354,11 @@ export default function MarketPanel({ gridParams }: { gridParams: GridParams }) 
 
   const handleRsiChartInstance = useCallback((chart: echarts.ECharts | null) => {
     rsiInstanceRef.current = chart;
+    syncConnectCharts();
+  }, []);
+
+  const handleVolumeMacdChartInstance = useCallback((chart: echarts.ECharts | null) => {
+    volumeMacdInstanceRef.current = chart;
     syncConnectCharts();
   }, []);
 
@@ -293,7 +385,7 @@ export default function MarketPanel({ gridParams }: { gridParams: GridParams }) 
 
   // 页面加载完成后，默认自动拉取一次 300408 的 15 分钟行情
   useEffect(() => {
-    const timer = window.setTimeout(() => { void fetchKlineData("300408", "m15", 120); }, 0);
+    const timer = window.setTimeout(() => { void fetchKlineData("300408", "m15", 200); }, 0);
     return () => { window.clearTimeout(timer); requestControllerRef.current?.abort(); };
   }, [fetchKlineData]);
 
@@ -374,6 +466,11 @@ export default function MarketPanel({ gridParams }: { gridParams: GridParams }) 
       </div>
 
       <div className="market-chart-panel">
+        <h3>Volume &amp; MACD</h3>
+        <VolumeMacdChart rows={data.kline} quietMode={quietMode} onDataIndex={scrollTableTo} onChartInstance={handleVolumeMacdChartInstance} />
+      </div>
+
+      <div className="market-chart-panel">
         <h3 className="market-panel-heading"><button type="button" className="market-collapsible-header" onClick={() => setShowRsi((prev) => !prev)} aria-expanded={showRsi}>
           <span>RSI</span>
           <span className="market-toggle-badge">{showRsi ? "收起 ▲" : "展开 ▼"}</span>
@@ -387,7 +484,7 @@ export default function MarketPanel({ gridParams }: { gridParams: GridParams }) 
           <span className="market-toggle-badge">{showTable ? "收起 ▲" : "展开 ▼"}</span>
         </button>
         {showTable ? (
-          <div className="market-table-scroll"><table className="market-table" ref={tableRef}><thead><tr><th>Date</th><th>Open</th><th>Close</th><th>High</th><th>Low</th><th>Volume</th><th>MA5</th><th>MA10</th><th>MA20</th><th>MA60</th><th>BOLL-U</th><th>BOLL-M</th><th>BOLL-L</th><th>RSI6</th><th>RSI12</th><th>RSI14</th><th>RSI24</th></tr></thead><tbody>{data.kline.map((row, index) => ({ row, index })).reverse().map(({ row, index }) => <tr data-index={index} key={`${row.date}-${index}`}><td>{row.date}</td><td>{numberText(row.open)}</td><td className={row.close != null && row.open != null && row.close >= row.open ? "market-positive" : "market-negative"}>{numberText(row.close)}</td><td>{numberText(row.high)}</td><td>{numberText(row.low)}</td><td>{volumeText(row.volume)}</td><td>{numberText(row.ma?.ma5)}</td><td>{numberText(row.ma?.ma10)}</td><td>{numberText(row.ma?.ma20)}</td><td>{numberText(row.ma?.ma60)}</td><td>{numberText(row.boll?.upper)}</td><td>{numberText(row.boll?.middle)}</td><td>{numberText(row.boll?.lower)}</td><td>{numberText(row.rsi?.rsi6, 1)}</td><td>{numberText(row.rsi?.rsi12, 1)}</td><td>{numberText(row.rsi?.rsi14, 1)}</td><td>{numberText(row.rsi?.rsi24, 1)}</td></tr>)}</tbody></table></div>
+          <div className="market-table-scroll"><table className="market-table" ref={tableRef}><thead><tr><th>Date</th><th>Open</th><th>Close</th><th>High</th><th>Low</th><th>Volume</th><th>MA5</th><th>MA10</th><th>MA20</th><th>MA60</th><th>BOLL-U</th><th>BOLL-M</th><th>BOLL-L</th><th>RSI6</th><th>RSI12</th><th>RSI14</th><th>RSI24</th><th>DIF</th><th>DEA</th><th>MACD</th></tr></thead><tbody>{data.kline.map((row, index) => ({ row, index })).reverse().map(({ row, index }) => <tr data-index={index} key={`${row.date}-${index}`}><td>{row.date}</td><td>{numberText(row.open)}</td><td className={row.close != null && row.open != null && row.close >= row.open ? "market-positive" : "market-negative"}>{numberText(row.close)}</td><td>{numberText(row.high)}</td><td>{numberText(row.low)}</td><td>{volumeText(row.volume)}</td><td>{numberText(row.ma?.ma5)}</td><td>{numberText(row.ma?.ma10)}</td><td>{numberText(row.ma?.ma20)}</td><td>{numberText(row.ma?.ma60)}</td><td>{numberText(row.boll?.upper)}</td><td>{numberText(row.boll?.middle)}</td><td>{numberText(row.boll?.lower)}</td><td>{numberText(row.rsi?.rsi6, 1)}</td><td>{numberText(row.rsi?.rsi12, 1)}</td><td>{numberText(row.rsi?.rsi14, 1)}</td><td>{numberText(row.rsi?.rsi24, 1)}</td><td>{numberText(row.macd?.dif, 3)}</td><td>{numberText(row.macd?.dea, 3)}</td><td>{numberText(row.macd?.histogram, 3)}</td></tr>)}</tbody></table></div>
         ) : null}
       </div>
     </> : <div className="gc-market-empty">输入股票代码后加载腾讯财经行情。</div>}
