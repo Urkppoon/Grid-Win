@@ -1,7 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import MarketPanel from "../components/market-panel";
+import StrategySidebar, { StrategySidebarItem } from "../components/strategy-sidebar";
+
+import {
+  K_TYPES,
+  getPriceDecimals,
+  roundPriceByCode,
+  type KType,
+} from "../lib/tencent-technical";
 
 type GridMode = "price" | "ratio";
 type BaselineMode = "rolling" | "fixed";
@@ -19,17 +27,127 @@ type GridRow = {
   netRate: number;
 };
 
+type CalculatorDraft = {
+  lower: number | null;
+  upper: number | null;
+  base: number | null;
+  baseSource: string;
+  mode: GridMode;
+  sellStep: number | null;
+  buyStep: number | null;
+  lotsPerGrid: number | null;
+  roundTripCost: number;
+  positionAmount: number | null;
+  cash: number | null;
+  sellableLots: number | null;
+  lockedLots: number | null;
+  maxHoldingLots: number | null;
+  minHoldingLots: number | null;
+  baselineMode: BaselineMode;
+  showPositionDetails: boolean;
+  showAdvancedSettings: boolean;
+  chartPeriod: KType;
+};
+
+type GridStrategy = {
+  id: string;
+  stockCode: string;
+  stockName: string;
+  name: string;
+  status: "running" | "paused";
+  draft: CalculatorDraft;
+};
+
 const LOT_SIZE = 100;
 const EPSILON = 1e-7;
+const GRID_DRAFT_STORAGE_KEY = "grid-win:calculator-draft:v1";
+const GRID_STRATEGIES_STORAGE_KEY = "grid-win:strategies:v1";
+const GRID_SIDEBAR_STORAGE_KEY = "grid-win:sidebar:v1";
 
-const roundPrice = (value: number) =>
-  Math.round((value + Number.EPSILON) * 100) / 100;
+const storedNumber = (value: unknown, fallback = Number.NaN) =>
+  typeof value === "number" && Number.isFinite(value) ? value : fallback;
+
+const storedOptionalNumber = (value: unknown) =>
+  typeof value === "number" && Number.isFinite(value) ? value : null;
+
+const serializableNumber = (value: number) => Number.isFinite(value) ? value : null;
+
+const blankCalculatorDraft = (): CalculatorDraft => ({
+  lower: null,
+  upper: null,
+  base: null,
+  baseSource: "manual",
+  mode: "price",
+  sellStep: null,
+  buyStep: null,
+  lotsPerGrid: null,
+  roundTripCost: 0.2,
+  positionAmount: null,
+  cash: null,
+  sellableLots: null,
+  lockedLots: null,
+  maxHoldingLots: null,
+  minHoldingLots: null,
+  baselineMode: "rolling",
+  showPositionDetails: false,
+  showAdvancedSettings: false,
+  chartPeriod: "m15",
+});
+
+const calculatorDraftFromRecord = (saved: Record<string, unknown>): CalculatorDraft => ({
+  lower: storedOptionalNumber(saved.lower),
+  upper: storedOptionalNumber(saved.upper),
+  base: storedOptionalNumber(saved.base),
+  baseSource: typeof saved.baseSource === "string" ? saved.baseSource : "manual",
+  mode: saved.mode === "ratio" ? "ratio" : "price",
+  sellStep: storedOptionalNumber(saved.sellStep),
+  buyStep: storedOptionalNumber(saved.buyStep),
+  lotsPerGrid: storedOptionalNumber(saved.lotsPerGrid),
+  roundTripCost: storedNumber(saved.roundTripCost, 0.2),
+  positionAmount: storedOptionalNumber(saved.positionAmount),
+  cash: storedOptionalNumber(saved.cash),
+  sellableLots: storedOptionalNumber(saved.sellableLots),
+  lockedLots: storedOptionalNumber(saved.lockedLots),
+  maxHoldingLots: storedOptionalNumber(saved.maxHoldingLots),
+  minHoldingLots: storedOptionalNumber(saved.minHoldingLots),
+  baselineMode: saved.baselineMode === "fixed" ? "fixed" : "rolling",
+  showPositionDetails: saved.showPositionDetails === true,
+  showAdvancedSettings: saved.showAdvancedSettings === true,
+  chartPeriod: (typeof saved.chartPeriod === "string" && K_TYPES.includes(saved.chartPeriod as KType) ? saved.chartPeriod : "m15") as KType,
+});
+
+const strategyFromRecord = (value: unknown): GridStrategy | null => {
+  if (!value || typeof value !== "object") return null;
+  const saved = value as Record<string, unknown>;
+  if (typeof saved.id !== "string" || typeof saved.name !== "string") return null;
+  return {
+    id: saved.id,
+    stockCode: typeof saved.stockCode === "string" ? saved.stockCode : "300408",
+    stockName: typeof saved.stockName === "string" ? saved.stockName : "三环集团",
+    name: saved.name,
+    status: saved.status === "paused" ? "paused" : "running",
+    draft: saved.draft && typeof saved.draft === "object"
+      ? calculatorDraftFromRecord(saved.draft as Record<string, unknown>)
+      : blankCalculatorDraft(),
+  };
+};
+
+const roundPrice = (value: number, code: string) =>
+  roundPriceByCode(value, code);
 
 const money = (value: number) =>
   new Intl.NumberFormat("zh-CN", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(value);
+
+const priceMoney = (value: number, code: string) => {
+  const decimals = getPriceDecimals(code);
+  return new Intl.NumberFormat("zh-CN", {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  }).format(value);
+};
 
 const integer = (value: number) =>
   new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 0 }).format(value);
@@ -102,6 +220,7 @@ export default function CalculatorPage() {
   const [buyStep, setBuyStep] = useState<number>(Number.NaN);
   const [lotsPerGrid, setLotsPerGrid] = useState<number>(Number.NaN);
   const [roundTripCost, setRoundTripCost] = useState<number>(0.2);
+  const [positionAmount, setPositionAmount] = useState<number | null>(null);
   const [cash, setCash] = useState<number>(Number.NaN);
   const [sellableLots, setSellableLots] = useState<number>(Number.NaN);
   const [lockedLots, setLockedLots] = useState<number>(Number.NaN);
@@ -110,7 +229,245 @@ export default function CalculatorPage() {
   const [baselineMode, setBaselineMode] = useState<BaselineMode>("rolling");
   const [showPositionDetails, setShowPositionDetails] = useState(false);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
+  const [chartPeriod, setChartPeriod] = useState<KType>("m15");
+  const [draftReady, setDraftReady] = useState(false);
+  const [strategies, setStrategies] = useState<GridStrategy[]>([]);
+  const [selectedStrategyId, setSelectedStrategyId] = useState("");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [marketResetSignal, setMarketResetSignal] = useState(0);
   const totalLots = sellableLots + lockedLots;
+
+  const applyCalculatorDraft = useCallback((draft: CalculatorDraft) => {
+    setLower(draft.lower ?? Number.NaN);
+    setUpper(draft.upper ?? Number.NaN);
+    setBase(draft.base ?? Number.NaN);
+    setBaseSource(draft.baseSource);
+    setMode(draft.mode);
+    setSellStep(draft.sellStep ?? Number.NaN);
+    setBuyStep(draft.buyStep ?? Number.NaN);
+    setLotsPerGrid(draft.lotsPerGrid ?? Number.NaN);
+    setRoundTripCost(draft.roundTripCost);
+    setPositionAmount(draft.positionAmount);
+    setCash(draft.cash ?? Number.NaN);
+    setSellableLots(draft.sellableLots ?? Number.NaN);
+    setLockedLots(draft.lockedLots ?? Number.NaN);
+    setMaxHoldingLots(draft.maxHoldingLots);
+    setMinHoldingLots(draft.minHoldingLots);
+    setBaselineMode(draft.baselineMode);
+    setShowPositionDetails(draft.showPositionDetails);
+    setShowAdvancedSettings(draft.showAdvancedSettings);
+    setChartPeriod(draft.chartPeriod ?? "m15");
+  }, []);
+
+  const currentDraft = useMemo<CalculatorDraft>(() => ({
+    lower: serializableNumber(lower),
+    upper: serializableNumber(upper),
+    base: serializableNumber(base),
+    baseSource,
+    mode,
+    sellStep: serializableNumber(sellStep),
+    buyStep: serializableNumber(buyStep),
+    lotsPerGrid: serializableNumber(lotsPerGrid),
+    roundTripCost: Number.isFinite(roundTripCost) ? roundTripCost : 0.2,
+    positionAmount: positionAmount != null && Number.isFinite(positionAmount) ? positionAmount : null,
+    cash: serializableNumber(cash),
+    sellableLots: serializableNumber(sellableLots),
+    lockedLots: serializableNumber(lockedLots),
+    maxHoldingLots,
+    minHoldingLots,
+    baselineMode,
+    showPositionDetails,
+    showAdvancedSettings,
+    chartPeriod,
+  }), [base, baseSource, baselineMode, buyStep, cash, chartPeriod, lockedLots, lotsPerGrid, lower, maxHoldingLots, minHoldingLots, mode, positionAmount, roundTripCost, sellStep, sellableLots, showAdvancedSettings, showPositionDetails, upper]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      let migratedDraft = blankCalculatorDraft();
+      try {
+        const raw = window.localStorage.getItem(GRID_DRAFT_STORAGE_KEY);
+        if (raw) {
+          const saved = JSON.parse(raw) as Record<string, unknown>;
+          migratedDraft = calculatorDraftFromRecord(saved);
+        }
+      } catch {
+        window.localStorage.removeItem(GRID_DRAFT_STORAGE_KEY);
+      }
+
+      let restoredStrategies: GridStrategy[] = [];
+      let restoredSelectedId = "";
+      try {
+        const raw = window.localStorage.getItem(GRID_STRATEGIES_STORAGE_KEY);
+        if (raw) {
+          const saved = JSON.parse(raw) as Record<string, unknown>;
+          restoredStrategies = Array.isArray(saved.strategies)
+            ? saved.strategies.map(strategyFromRecord).filter((strategy): strategy is GridStrategy => strategy !== null)
+            : [];
+          restoredSelectedId = typeof saved.selectedStrategyId === "string" ? saved.selectedStrategyId : "";
+        }
+      } catch {
+        window.localStorage.removeItem(GRID_STRATEGIES_STORAGE_KEY);
+      }
+
+      if (restoredStrategies.length === 0) {
+        const defaultStrategy: GridStrategy = {
+          id: "strategy-default-300408",
+          stockCode: "300408",
+          stockName: "三环集团",
+          name: "默认网格",
+          status: "running",
+          draft: migratedDraft,
+        };
+        restoredStrategies = [defaultStrategy];
+        restoredSelectedId = defaultStrategy.id;
+      }
+
+      const selected = restoredStrategies.find((strategy) => strategy.id === restoredSelectedId) ?? restoredStrategies[0];
+      setStrategies(restoredStrategies);
+      setSelectedStrategyId(selected.id);
+      applyCalculatorDraft(selected.draft);
+      setSidebarCollapsed(window.localStorage.getItem(GRID_SIDEBAR_STORAGE_KEY) === "collapsed");
+      setDraftReady(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [applyCalculatorDraft]);
+
+  useEffect(() => {
+    if (!draftReady) return;
+    window.localStorage.setItem(GRID_DRAFT_STORAGE_KEY, JSON.stringify({ version: 1, updatedAt: new Date().toISOString(), ...currentDraft }));
+    if (!selectedStrategyId) return;
+    const timer = window.setTimeout(() => {
+      setStrategies((previous) => previous.map((strategy) =>
+        strategy.id === selectedStrategyId ? { ...strategy, draft: currentDraft } : strategy
+      ));
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [currentDraft, draftReady, selectedStrategyId]);
+
+  useEffect(() => {
+    if (!draftReady || strategies.length === 0) return;
+    window.localStorage.setItem(GRID_STRATEGIES_STORAGE_KEY, JSON.stringify({
+      version: 1,
+      updatedAt: new Date().toISOString(),
+      selectedStrategyId,
+      strategies,
+    }));
+  }, [draftReady, selectedStrategyId, strategies]);
+
+  useEffect(() => {
+    if (!draftReady) return;
+    window.localStorage.setItem(GRID_SIDEBAR_STORAGE_KEY, sidebarCollapsed ? "collapsed" : "expanded");
+    const timer = window.setTimeout(() => window.dispatchEvent(new Event("resize")), 260);
+    return () => window.clearTimeout(timer);
+  }, [draftReady, sidebarCollapsed]);
+
+  const clearDraft = () => {
+    window.localStorage.removeItem(GRID_DRAFT_STORAGE_KEY);
+    setLower(Number.NaN);
+    setUpper(Number.NaN);
+    setBase(Number.NaN);
+    setBaseSource("manual");
+    setMode("price");
+    setSellStep(Number.NaN);
+    setBuyStep(Number.NaN);
+    setLotsPerGrid(Number.NaN);
+    setRoundTripCost(0.2);
+    setPositionAmount(null);
+    setCash(Number.NaN);
+    setSellableLots(Number.NaN);
+    setLockedLots(Number.NaN);
+    setMaxHoldingLots(null);
+    setMinHoldingLots(null);
+    setBaselineMode("rolling");
+    setShowPositionDetails(false);
+    setShowAdvancedSettings(false);
+    setChartPeriod("m15");
+    setMarketResetSignal((value) => value + 1);
+  };
+
+  const selectStrategy = (id: string) => {
+    if (id === selectedStrategyId) return;
+    const target = strategies.find((strategy) => strategy.id === id);
+    if (!target) return;
+    setStrategies((previous) => previous.map((strategy) =>
+      strategy.id === selectedStrategyId ? { ...strategy, draft: currentDraft } : strategy
+    ));
+    setSelectedStrategyId(id);
+    applyCalculatorDraft(target.draft);
+  };
+
+  const createStrategy = ({ stockCode, stockName, name }: { stockCode: string; stockName: string; name: string }) => {
+    const next: GridStrategy = {
+      id: `strategy-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      stockCode,
+      stockName,
+      name,
+      status: "running",
+      draft: blankCalculatorDraft(),
+    };
+    setStrategies((previous) => [
+      ...previous.map((strategy) => strategy.id === selectedStrategyId ? { ...strategy, draft: currentDraft } : strategy),
+      next,
+    ]);
+    setSelectedStrategyId(next.id);
+    applyCalculatorDraft(next.draft);
+  };
+
+  const toggleStrategyStatus = (id: string) => {
+    setStrategies((previous) => previous.map((strategy) =>
+      strategy.id === id
+        ? { ...strategy, status: strategy.status === "running" ? "paused" : "running" }
+        : strategy
+    ));
+  };
+
+  const updateStrategyInfo = (id: string, updates: { name: string; stockCode: string; stockName: string }) => {
+    const nextName = updates.name.trim();
+    if (!nextName) return;
+    setStrategies((previous) => previous.map((strategy) =>
+      strategy.id === id
+        ? {
+            ...strategy,
+            name: nextName,
+            stockCode: updates.stockCode.trim() || strategy.stockCode,
+            stockName: updates.stockName.trim() || strategy.stockName,
+          }
+        : strategy
+    ));
+  };
+
+  const deleteStrategy = (id: string) => {
+    if (strategies.length <= 1) {
+      alert("至少需要保留一套网格策略，无法删除唯一策略。");
+      return;
+    }
+    const remaining = strategies.filter((strategy) => strategy.id !== id);
+    setStrategies(remaining);
+    if (selectedStrategyId === id) {
+      const nextStrategy = remaining[0];
+      setSelectedStrategyId(nextStrategy.id);
+      applyCalculatorDraft(nextStrategy.draft);
+    }
+  };
+
+  const updateSelectedStockCode = (stockCode: string) => {
+    setStrategies((previous) => previous.map((strategy) =>
+      strategy.id === selectedStrategyId ? { ...strategy, stockCode } : strategy
+    ));
+  };
+
+  const activeStrategy = strategies.find((strategy) => strategy.id === selectedStrategyId) ?? strategies[0];
+  const isETF = getPriceDecimals(activeStrategy?.stockCode ?? "") === 3;
+  const sidebarStrategies = useMemo<StrategySidebarItem[]>(() => strategies.map((strategy) => ({
+    id: strategy.id,
+    stockCode: strategy.stockCode,
+    stockName: strategy.stockName,
+    name: strategy.name,
+    status: strategy.status,
+    cash: strategy.id === selectedStrategyId ? (positionAmount ?? serializableNumber(cash)) : (strategy.draft.positionAmount ?? strategy.draft.cash),
+    lower: strategy.id === selectedStrategyId ? serializableNumber(lower) : strategy.draft.lower,
+    upper: strategy.id === selectedStrategyId ? serializableNumber(upper) : strategy.draft.upper,
+  })), [cash, lower, positionAmount, selectedStrategyId, strategies, upper]);
 
   const result = useMemo(() => {
     const values = [
@@ -162,31 +519,36 @@ export default function CalculatorPage() {
     const seenDown = new Set<number>();
     const seenUp = new Set<number>();
 
+    const currentCode = activeStrategy?.stockCode ?? "300408";
+    let currentDown = roundPrice(base, currentCode);
     for (let index = 1; index <= 200; index += 1) {
-      const raw =
+      const nextRaw =
         mode === "price"
-          ? base - buyStep * index
-          : base * Math.pow(1 - buyStep / 100, index);
-      const price = roundPrice(raw);
+          ? currentDown - buyStep
+          : currentDown * (1 - buyStep / 100);
+      const price = roundPrice(nextRaw, currentCode);
       if (price < lower - EPSILON) break;
-      if (price >= base || seenDown.has(price)) continue;
+      if (price >= currentDown || seenDown.has(price)) break;
       seenDown.add(price);
       down.push(price);
+      currentDown = price;
     }
 
+    let currentUp = roundPrice(base, currentCode);
     for (let index = 1; index <= 200; index += 1) {
-      const raw =
+      const nextRaw =
         mode === "price"
-          ? base + sellStep * index
-          : base * Math.pow(1 + sellStep / 100, index);
-      const price = roundPrice(raw);
+          ? currentUp + sellStep
+          : currentUp * (1 + sellStep / 100);
+      const price = roundPrice(nextRaw, currentCode);
       if (price > upper + EPSILON) break;
-      if (price <= base || seenUp.has(price)) continue;
+      if (price <= currentUp || seenUp.has(price)) break;
       seenUp.add(price);
       up.push(price);
+      currentUp = price;
     }
 
-    const levels = [...down].reverse().concat(roundPrice(base), up);
+    const levels = [...down].reverse().concat(roundPrice(base, currentCode), up);
     const quantity = lotsPerGrid * LOT_SIZE;
     const rows: GridRow[] = [];
 
@@ -280,32 +642,50 @@ export default function CalculatorPage() {
   const hasError = Boolean(result.error);
   const valid = hasError ? null : result;
   return (
-    <main className="gc-app">
-      <header className="gc-hero">
-        <div>
-          <span className="gc-eyebrow">A股 T+1 网格设计</span>
-          <h1>Grid Win</h1>
-        </div>
-      </header>
+    <div className="gc-shell" data-sidebar-collapsed={sidebarCollapsed}>
+      <StrategySidebar
+        collapsed={sidebarCollapsed}
+        strategies={sidebarStrategies}
+        selectedId={selectedStrategyId}
+        onToggle={() => setSidebarCollapsed((previous) => !previous)}
+        onSelect={selectStrategy}
+        onCreate={createStrategy}
+        onRename={updateStrategyInfo}
+        onToggleStatus={toggleStrategyStatus}
+        onDelete={deleteStrategy}
+      />
 
-      <section className="gc-layout">
+      <main className="gc-app">
+        <h1>grid win</h1>
+        <p className="gc-visually-hidden">支持单边行情承受力测算，并区分昨日可卖底仓与今日买入锁定持仓。</p>
+        <header className="gc-context-bar">
+          <div>
+            <span>{activeStrategy?.stockCode || "未设置代码"} {activeStrategy?.stockName || "未命名个股"}</span>
+            <i aria-hidden="true" />
+            <strong>{activeStrategy?.name || "默认网格"}</strong>
+          </div>
+          <span className="gc-save-state"><i aria-hidden="true" />已自动保存</span>
+        </header>
+
+        <section className="gc-layout">
         <aside className="gc-panel gc-controls" aria-label="网格参数">
-          <div className="gc-section-heading">
+          <div className="gc-section-heading gc-section-heading-row">
             <div>
               <span>01</span>
               <h2>触发条件</h2>
             </div>
+            <button type="button" className="gc-clear-button" onClick={clearDraft}>一键清空</button>
           </div>
 
           <div className="gc-fields gc-fields-three">
             <Field label="价格下限（元）">
-              <NumericInput min={0.01} step={0.01} value={lower} onValueChange={setLower} />
+              <NumericInput key={`lower-${marketResetSignal}-${lower}`} min={isETF ? 0.001 : 0.01} step={isETF ? 0.001 : 0.01} value={lower} onValueChange={setLower} />
             </Field>
             <Field label="初始基准价（元）">
-              <NumericInput min={0.01} step={0.01} value={base} onValueChange={setBase} />
+              <NumericInput key={`base-${marketResetSignal}-${base}`} min={isETF ? 0.001 : 0.01} step={isETF ? 0.001 : 0.01} value={base} onValueChange={setBase} />
             </Field>
             <Field label="价格上限（元）">
-              <NumericInput min={0.01} step={0.01} value={upper} onValueChange={setUpper} />
+              <NumericInput key={`upper-${marketResetSignal}-${upper}`} min={isETF ? 0.001 : 0.01} step={isETF ? 0.001 : 0.01} value={upper} onValueChange={setUpper} />
             </Field>
           </div>
 
@@ -333,11 +713,11 @@ export default function CalculatorPage() {
           </div>
 
           <div className="gc-fields gc-fields-two">
-            <Field label={`上涨卖出${mode === "price" ? "价差（元）" : "比例（%）"}`}>
-              <NumericInput min={0.01} step={0.01} value={sellStep} onValueChange={setSellStep} />
+            <Field label={`上涨 - 卖出（${mode === "price" ? "元" : "%"}）`}>
+              <NumericInput key={`sell-step-${marketResetSignal}-${sellStep}`} min={mode === "price" && isETF ? 0.001 : 0.01} step={mode === "price" && isETF ? 0.001 : 0.01} value={sellStep} onValueChange={setSellStep} />
             </Field>
-            <Field label={`下跌买入${mode === "price" ? "价差（元）" : "比例（%）"}`}>
-              <NumericInput min={0.01} step={0.01} value={buyStep} onValueChange={setBuyStep} />
+            <Field label={`下跌 - 买入（${mode === "price" ? "元" : "%"}）`}>
+              <NumericInput key={`buy-step-${marketResetSignal}-${buyStep}`} min={mode === "price" && isETF ? 0.001 : 0.01} step={mode === "price" && isETF ? 0.001 : 0.01} value={buyStep} onValueChange={setBuyStep} />
             </Field>
           </div>
 
@@ -348,47 +728,54 @@ export default function CalculatorPage() {
               <span>02</span>
               <h2>持仓管理</h2>
             </div>
-            <p>1手按100股计算；持仓上下限留空则不限制。</p>
           </div>
 
           <div className="gc-fields gc-fields-two">
             <Field label="每格交易（手）">
-              <NumericInput min={1} step={1} value={lotsPerGrid} onValueChange={setLotsPerGrid} />
+              <NumericInput key={`lots-${marketResetSignal}-${lotsPerGrid}`} min={1} step={1} value={lotsPerGrid} onValueChange={setLotsPerGrid} />
             </Field>
             <Field label="可用现金（元）">
-              <NumericInput min={0} step={100} value={cash} onValueChange={setCash} />
+              <NumericInput key={`cash-${marketResetSignal}-${cash}`} min={0} step={100} value={cash} onValueChange={setCash} />
             </Field>
             <Field label="最大持仓（手）" hint="达到上限后不再触发买入">
-              <OptionalNumericInput min={0} step={1} value={maxHoldingLots} onValueChange={setMaxHoldingLots} placeholder="不设上限" />
+              <OptionalNumericInput key={`max-holding-${marketResetSignal}-${maxHoldingLots}`} min={0} step={1} value={maxHoldingLots} onValueChange={setMaxHoldingLots} placeholder="不设上限" />
             </Field>
             <Field label="最小持仓（手）" hint="触及下限后不再触发卖出">
-              <OptionalNumericInput min={0} step={1} value={minHoldingLots} onValueChange={setMinHoldingLots} placeholder="不设下限" />
+              <OptionalNumericInput key={`min-holding-${marketResetSignal}-${minHoldingLots}`} min={0} step={1} value={minHoldingLots} onValueChange={setMinHoldingLots} placeholder="不设下限" />
             </Field>
-            <div className="gc-position-card">
-              <span>当前总持仓</span>
-              <strong>{Number.isFinite(totalLots) ? `${integer(totalLots)}手` : "—"}</strong>
-              <small>{Number.isFinite(sellableLots) ? `其中可卖 ${integer(sellableLots)} 手` : "填写 T+1 持仓后显示可卖数量"}</small>
-            </div>
           </div>
 
           <button type="button" className="gc-inline-toggle" onClick={() => setShowPositionDetails((prev) => !prev)} aria-expanded={showPositionDetails}>
-            <span>T+1 持仓明细</span><span className="gc-inline-toggle-badge">{showPositionDetails ? "收起 ▲" : "展开 ▼"}</span>
+            <span>持仓明细</span><span className="gc-inline-toggle-badge">{showPositionDetails ? "收起 ▲" : "展开 ▼"}</span>
           </button>
           {showPositionDetails ? <div className="gc-fields gc-fields-two gc-revealed-fields">
             <Field label="昨日可卖底仓（手）">
-              <NumericInput min={0} step={1} value={sellableLots} onValueChange={setSellableLots} />
+              <NumericInput key={`sellable-${marketResetSignal}-${sellableLots}`} min={0} step={1} value={sellableLots} onValueChange={setSellableLots} />
             </Field>
-            <Field label="今日买入锁定（手）" hint="仅计入总持仓，不增加今日卖出能力">
-              <NumericInput min={0} step={1} value={lockedLots} onValueChange={setLockedLots} />
+            <Field label="今日买入锁定（手）">
+              <NumericInput key={`locked-${marketResetSignal}-${lockedLots}`} min={0} step={1} value={lockedLots} onValueChange={setLockedLots} />
             </Field>
           </div> : null}
 
+          <div className="gc-position-card">
+            <div>
+              <span>当前总持仓</span>
+              <small style={{ marginLeft: '8px' }}>
+                {Number.isFinite(sellableLots) ? `(其中可卖 ${integer(sellableLots)} 手)` : ""}
+              </small>
+            </div>
+            <strong>{Number.isFinite(totalLots) ? `${integer(totalLots)}手` : "—"}</strong>
+          </div>
+
           <button type="button" className="gc-inline-toggle" onClick={() => setShowAdvancedSettings((prev) => !prev)} aria-expanded={showAdvancedSettings}>
-            <span>交易成本设置</span><span className="gc-inline-toggle-badge">{showAdvancedSettings ? "收起 ▲" : "展开 ▼"}</span>
+            <span>交易成本</span><span className="gc-inline-toggle-badge">{showAdvancedSettings ? "收起 ▲" : "展开 ▼"}</span>
           </button>
-          {showAdvancedSettings ? <div className="gc-fields gc-revealed-fields">
+          {showAdvancedSettings ? <div className="gc-fields gc-fields-two gc-revealed-fields">
             <Field label="估算往返成本率（%）">
-              <NumericInput min={0} step={0.01} value={roundTripCost} onValueChange={setRoundTripCost} />
+              <NumericInput key={`cost-${marketResetSignal}-${roundTripCost}`} min={0} step={0.01} value={roundTripCost} onValueChange={setRoundTripCost} />
+            </Field>
+            <Field label="持仓金额（元）">
+              <OptionalNumericInput key={`posAmount-${marketResetSignal}-${positionAmount}`} min={0} step={100} value={positionAmount} onValueChange={setPositionAmount} placeholder="待填写" />
             </Field>
           </div> : null}
 
@@ -396,7 +783,14 @@ export default function CalculatorPage() {
         </aside>
 
         <section className="gc-results" aria-live="polite">
-          <MarketPanel gridParams={{ lowerLimit: lower, basePrice: base, upperLimit: upper, buyStep, sellStep, mode }} />
+          <MarketPanel
+            gridParams={{ lowerLimit: lower, basePrice: base, upperLimit: upper, buyStep, sellStep, mode }}
+            resetSignal={marketResetSignal}
+            strategyStockCode={activeStrategy?.stockCode ?? ""}
+            onStockCodeChange={updateSelectedStockCode}
+            selectedKType={chartPeriod}
+            onKTypeChange={setChartPeriod}
+          />
 
           {valid ? (
             <>
@@ -406,7 +800,6 @@ export default function CalculatorPage() {
                     <span>04</span>
                     <h2>行情推演</h2>
                   </div>
-                  <div className="gc-mode-pill">{baselineMode === "rolling" ? "成交后滚动" : "固定基准"}</div>
                 </div>
 
                 <section className="gc-strategy-overview" aria-label="策略概览">
@@ -443,7 +836,7 @@ export default function CalculatorPage() {
                     </div>
                     <div className="gc-meter"><i style={{ width: `${valid.buyRows.length ? Math.min(100, valid.affordableBuyGrids / valid.buyRows.length * 100) : 100}%` }} /></div>
                     <p>覆盖全部下方买单需 {money(valid.requiredDownCash)} 元。</p>
-                    {valid.firstMissedBuy ? <b>{valid.affordableBuyGrids === valid.positionBuyCapacity ? "最大持仓将在下一格买入前触及上限。" : `资金将在触及 ${money(valid.firstMissedBuy.trigger)} 元前不足。`}</b> : <b>当前现金和持仓上限可以覆盖全部下方网格。</b>}
+                    {valid.firstMissedBuy ? <b>{valid.affordableBuyGrids === valid.positionBuyCapacity ? "最大持仓将在下一格买入前触及上限。" : `资金将在触及 ${priceMoney(valid.firstMissedBuy.trigger, activeStrategy?.stockCode ?? "300408")} 元前不足。`}</b> : <b>当前现金和持仓上限可以覆盖全部下方网格。</b>}
                   </div>
 
                   <div className="gc-capacity-item" data-side="sell" data-safe={valid.executableSellGrids >= valid.sellRows.length}>
@@ -453,7 +846,7 @@ export default function CalculatorPage() {
                     </div>
                     <div className="gc-meter"><i style={{ width: `${valid.sellRows.length ? Math.min(100, valid.executableSellGrids / valid.sellRows.length * 100) : 100}%` }} /></div>
                     <p>覆盖全部上方卖单需 {valid.requiredSellableLots} 手昨日可卖底仓。</p>
-                    {valid.firstMissedSell ? <b>{valid.executableSellGrids === valid.sellCapacity ? "最小持仓将在下一格卖出前触及下限。" : `底仓将在触及 ${money(valid.firstMissedSell.trigger)} 元前耗尽，继续上涨可能踏空。`}</b> : <b>当前底仓和最小持仓限制可以覆盖全部上方网格。</b>}
+                    {valid.firstMissedSell ? <b>{valid.executableSellGrids === valid.sellCapacity ? "最小持仓将在下一格卖出前触及下限。" : `底仓将在触及 ${priceMoney(valid.firstMissedSell.trigger, activeStrategy?.stockCode ?? "300408")} 元前耗尽，继续上涨可能踏空。`}</b> : <b>当前底仓和最小持仓限制可以覆盖全部上方网格。</b>}
                   </div>
                 </div>
 
@@ -471,7 +864,6 @@ export default function CalculatorPage() {
                     <span>05</span>
                     <h2>价格层与买卖区域</h2>
                   </div>
-                  <p>触及一层只执行一次，成交后才更新状态。</p>
                 </div>
 
                 <div className="gc-ladder-scroll">
@@ -481,7 +873,7 @@ export default function CalculatorPage() {
                       return (
                         <div className="gc-level" data-zone={zone} key={price}>
                           <span>{zone === "base" ? "初始基准" : zone === "sell" ? "上涨卖出" : "下跌买入"}</span>
-                          <strong>{money(price)}</strong>
+                          <strong>{priceMoney(price, activeStrategy?.stockCode ?? "300408")}</strong>
                           <small>{zone === "base" ? "等待相邻格触发" : `${lotsPerGrid}手`}</small>
                         </div>
                       );
@@ -493,7 +885,7 @@ export default function CalculatorPage() {
                   <div className="gc-remainder">
                     <strong>边界余量未组成完整网格</strong>
                     <span>
-                      下限侧 {money(valid.lowerRemainder)} 元 · 上限侧 {money(valid.upperRemainder)} 元
+                      下限侧 {priceMoney(valid.lowerRemainder, activeStrategy?.stockCode ?? "300408")} 元 · 上限侧 {priceMoney(valid.upperRemainder, activeStrategy?.stockCode ?? "300408")} 元
                     </span>
                   </div>
                 ) : null}
@@ -505,7 +897,6 @@ export default function CalculatorPage() {
                     <span>06</span>
                     <h2>收益预估</h2>
                   </div>
-                  <p>净收益按输入的往返成本率估算。</p>
                 </div>
 
                 <div className="gc-table-wrap">
@@ -526,7 +917,7 @@ export default function CalculatorPage() {
                       {[...valid.rows].reverse().map((row) => (
                         <tr key={`${row.low}-${row.high}`}>
                           <td><span className={`gc-action gc-action-${row.side}`}>{row.side === "buy" ? "下跌买入" : "上涨卖出"}</span></td>
-                          <td>{money(row.low)} → {money(row.high)}</td>
+                          <td>{priceMoney(row.low, activeStrategy?.stockCode ?? "300408")} → {priceMoney(row.high, activeStrategy?.stockCode ?? "300408")}</td>
                           <td>{money(row.buyAmount)}</td>
                           <td>{money(row.sellAmount)}</td>
                           <td>{money(row.grossProfit)}</td>
@@ -545,7 +936,8 @@ export default function CalculatorPage() {
             <div className="gc-empty">修正左侧参数后，这里会生成完整的网格与承受力测算。</div>
           )}
         </section>
-      </section>
-    </main>
+        </section>
+      </main>
+    </div>
   );
 }

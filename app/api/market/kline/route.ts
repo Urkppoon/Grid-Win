@@ -1,7 +1,5 @@
 import { NextResponse } from "next/server";
-import { fetchTencentKline, K_TYPES, type KType } from "../../../lib/tencent-technical";
-
-const STOCK_CODE = /^(?:(?:sh|sz|hk|us)?[a-z0-9]{1,12})$/i;
+import { fetchTencentKline, K_TYPES, normalizeCode, type KType } from "../../../lib/tencent-technical";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -9,8 +7,8 @@ export async function GET(request: Request) {
   const kType = (url.searchParams.get("k_type") ?? "day") as KType;
   const rawCount = Number(url.searchParams.get("num") ?? "200");
 
-  if (!STOCK_CODE.test(stockCode)) {
-    return NextResponse.json({ error: "股票代码格式不正确" }, { status: 400 });
+  if (!normalizeCode(stockCode)) {
+    return NextResponse.json({ error: "请输入 6 位股票或 ETF 代码" }, { status: 400 });
   }
   if (!K_TYPES.includes(kType)) {
     return NextResponse.json({ error: "不支持的 K 线周期" }, { status: 400 });

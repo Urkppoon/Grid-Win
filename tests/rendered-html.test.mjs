@@ -1,6 +1,17 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { normalizeCode } from "../app/lib/tencent-technical.ts";
+
+test("normalizes A-share and ETF codes without requiring a market prefix", () => {
+  assert.equal(normalizeCode("515400"), "sh515400");
+  assert.equal(normalizeCode("510300"), "sh510300");
+  assert.equal(normalizeCode("159915"), "sz159915");
+  assert.equal(normalizeCode("300408"), "sz300408");
+  assert.equal(normalizeCode("600519"), "sh600519");
+  assert.equal(normalizeCode("sh515400"), "sh515400");
+  assert.equal(normalizeCode("5154000"), "");
+});
 
 async function render(pathname = "/") {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);

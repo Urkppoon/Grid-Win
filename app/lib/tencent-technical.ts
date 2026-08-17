@@ -1,5 +1,26 @@
-export const K_TYPES = ["day", "week", "month", "m1", "m5", "m15", "m30", "m60"] as const;
+export const K_TYPES = ["day", "week", "month", "m1", "m5", "m15", "m30", "m60", "m120"] as const;
 export type KType = (typeof K_TYPES)[number];
+
+export function isETFOrFund(code: string): boolean {
+  const cleaned = (code || "").trim();
+  return /^(50|51|52|56|58|15|16|18|11|12)/.test(cleaned);
+}
+
+export function getPriceDecimals(code: string): number {
+  return isETFOrFund(code) ? 3 : 2;
+}
+
+export function roundPriceByCode(value: number, code: string): number {
+  const decimals = getPriceDecimals(code);
+  const factor = Math.pow(10, decimals);
+  return Math.round((value + Number.EPSILON) * factor) / factor;
+}
+
+export function formatPriceByCode(value: number | null | undefined, code: string): string {
+  if (value == null || !Number.isFinite(value)) return "—";
+  const decimals = getPriceDecimals(code);
+  return value.toFixed(decimals);
+}
 
 export type KlineRow = {
   date: string;
@@ -40,12 +61,14 @@ function numberOrNull(value: unknown): number | null {
 
 export function normalizeCode(input: string): string {
   const code = input.trim().toLowerCase().replaceAll(".", "");
-  if (/^(sh|sz|hk|us)/.test(code)) return code;
+  if (/^(?:sh|sz)\d{6}$/.test(code)) return code;
+  if (/^hk\d{1,5}$/.test(code)) return code;
+  if (/^us[a-z0-9]+$/.test(code)) return code;
   if (/^[a-z]+$/.test(code)) return `us${code}`;
-  if (/^\d+$/.test(code)) {
-    if (code.length < 6) return `hk${code}`;
-    if (code.startsWith("6")) return `sh${code}`;
-    if (code.startsWith("0") || code.startsWith("3")) return `sz${code}`;
+  if (/^\d{1,5}$/.test(code)) return `hk${code}`;
+  if (/^\d{6}$/.test(code)) {
+    if (/^[569]/.test(code)) return `sh${code}`;
+    if (/^[0123]/.test(code)) return `sz${code}`;
   }
   return "";
 }

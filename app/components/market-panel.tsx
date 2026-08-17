@@ -2,18 +2,31 @@
 
 import * as echarts from "echarts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { KlineRow, KType, TencentKlineResult } from "../lib/tencent-technical";
+import { getPriceDecimals, type KlineRow, type KType, type TencentKlineResult } from "../lib/tencent-technical";
 
 const K_TYPES: Array<{ value: KType; label: string }> = [
   { value: "day", label: "日 K" }, { value: "week", label: "周 K" }, { value: "month", label: "月 K" },
-  { value: "m1", label: "1 分钟" }, { value: "m5", label: "5 分钟" }, { value: "m15", label: "15 分钟" }, { value: "m30", label: "30 分钟" }, { value: "m60", label: "60 分钟" },
+  { value: "m1", label: "1 分钟" }, { value: "m5", label: "5 分钟" }, { value: "m15", label: "15 分钟" }, { value: "m30", label: "30 分钟" }, { value: "m60", label: "60 分钟" }, { value: "m120", label: "120 分钟" },
 ];
 
-const PRIMARY_K_TYPES: KType[] = ["day", "m60", "m15", "m5"];
+const PRIMARY_K_TYPES: KType[] = ["day", "m120", "m60", "m15", "m5"];
 const PRIMARY_K_TYPE_LABELS: Record<KType, string> = {
-  day: "日线", week: "周线", month: "月线", m1: "1分", m5: "5分", m15: "15分", m30: "30分", m60: "60分",
+  day: "日线", week: "周线", month: "月线", m1: "1分", m5: "5分", m15: "15分", m30: "30分", m60: "60分", m120: "120分",
 };
 const EXTRA_K_TYPES = K_TYPES.filter((item) => !PRIMARY_K_TYPES.includes(item.value));
+const MARKET_PREFERENCES_STORAGE_KEY = "grid-win:market-preferences:v1";
+const DEFAULT_MARKET_PREFERENCES = {
+  stockCode: "300408",
+  kType: "m15" as KType,
+  count: 200,
+  showStatus: false,
+  showGrid: true,
+  showMa: true,
+  showBoll: false,
+  quietMode: true,
+  showRsi: false,
+  showTable: false,
+};
 
 const numberText = (value: number | null | undefined, digits = 2) => value == null ? "—" : value.toFixed(digits);
 const volumeText = (value: number | null | undefined) => value == null ? "—" : value >= 1e8 ? `${(value / 1e8).toFixed(1)}亿` : value >= 1e4 ? `${(value / 1e4).toFixed(0)}万` : Math.round(value).toLocaleString();
@@ -27,29 +40,34 @@ export type GridParams = {
   upperLimit: number;
   buyStep: number;
   sellStep: number;
-  mode: "price" | "ratio";
+  mode?: "price" | "ratio";
 };
 
 type GridLevel = { price: number; type: "base" | "buy" | "sell" | "upper" | "lower"; label: string };
 
-function calculateGridOverlay({ lowerLimit, basePrice, upperLimit, buyStep, sellStep, mode }: GridParams, quietMode = false) {
+function calculateGridOverlay({ lowerLimit, basePrice, upperLimit, buyStep, sellStep, mode }: GridParams, quietMode = false, stockCode = "") {
+  const decimals = getPriceDecimals(stockCode);
+  const factor = Math.pow(10, decimals);
   const levels: GridLevel[] = [];
   const addLevels = (direction: "buy" | "sell", limit: number, step: number) => {
+    let current = basePrice;
     for (let count = 1; count <= 50; count += 1) {
       const raw = mode === "price"
-        ? basePrice + (direction === "buy" ? -step : step) * count
-        : basePrice * Math.pow(1 + (direction === "buy" ? -step : step) / 100, count);
-      const price = Math.round((raw + Number.EPSILON) * 100) / 100;
-      if ((direction === "buy" && price < limit - 0.001) || (direction === "sell" && price > limit + 0.001)) break;
-      levels.push({ price, type: Math.abs(price - limit) < 0.001 ? (direction === "buy" ? "lower" : "upper") : direction, label: `${direction === "buy" ? "买" : "卖"} ${price.toFixed(2)}` });
+        ? current + (direction === "buy" ? -step : step)
+        : current * (1 + (direction === "buy" ? -step : step) / 100);
+      const price = Math.round((raw + Number.EPSILON) * factor) / factor;
+      if ((direction === "buy" && price < limit - 0.0001) || (direction === "sell" && price > limit + 0.0001)) break;
+      if (direction === "buy" ? price >= current : price <= current) break;
+      levels.push({ price, type: Math.abs(price - limit) < 0.0001 ? (direction === "buy" ? "lower" : "upper") : direction, label: `${direction === "buy" ? "买" : "卖"} ${price.toFixed(decimals)}` });
+      current = price;
     }
   };
   if (basePrice > 0 && lowerLimit < basePrice && upperLimit > basePrice && buyStep > 0 && sellStep > 0) {
     addLevels("buy", lowerLimit, buyStep);
-    levels.push({ price: basePrice, type: "base", label: `基准 ${basePrice.toFixed(2)}` });
+    levels.push({ price: basePrice, type: "base", label: `基准 ${basePrice.toFixed(decimals)}` });
     addLevels("sell", upperLimit, sellStep);
-    if (!levels.some((item) => Math.abs(item.price - lowerLimit) < 0.001)) levels.push({ price: lowerLimit, type: "lower", label: `下限 ${lowerLimit.toFixed(2)}` });
-    if (!levels.some((item) => Math.abs(item.price - upperLimit) < 0.001)) levels.push({ price: upperLimit, type: "upper", label: `上限 ${upperLimit.toFixed(2)}` });
+    if (!levels.some((item) => Math.abs(item.price - lowerLimit) < 0.0001)) levels.push({ price: lowerLimit, type: "lower", label: `下限 ${lowerLimit.toFixed(decimals)}` });
+    if (!levels.some((item) => Math.abs(item.price - upperLimit) < 0.0001)) levels.push({ price: upperLimit, type: "upper", label: `上限 ${upperLimit.toFixed(decimals)}` });
   }
   return levels.map((item) => {
     const color = quietMode ? (item.type === "base" ? "#D1D1D6" : "#636366") : item.type === "base" ? "#FFD60A" : item.type === "buy" || item.type === "lower" ? "#30D158" : "#FF453A";
@@ -77,7 +95,7 @@ function baseChartOption(dates: string[]) {
   };
 }
 
-function KlineChart({ rows, gridParams, showGrid, showMa, showBoll, quietMode, onDataIndex, onChartInstance }: { rows: KlineRow[]; gridParams: GridParams; showGrid: boolean; showMa: boolean; showBoll: boolean; quietMode: boolean; onDataIndex: (index: number) => void; onChartInstance?: (chart: echarts.ECharts | null) => void }) {
+function KlineChart({ rows, gridParams, showGrid, showMa, showBoll, quietMode, stockCode = "", onDataIndex, onChartInstance }: { rows: KlineRow[]; gridParams: GridParams; showGrid: boolean; showMa: boolean; showBoll: boolean; quietMode: boolean; stockCode?: string; onDataIndex: (index: number) => void; onChartInstance?: (chart: echarts.ECharts | null) => void }) {
   const chartRef = useRef<HTMLDivElement>(null);
   const chartInstanceRef = useRef<echarts.ECharts | null>(null);
 
@@ -142,7 +160,7 @@ function KlineChart({ rows, gridParams, showGrid, showMa, showBoll, quietMode, o
               ...(lowest ? [{ name: "阶段最低", coord: [dates[lowest.index], lowest.value], value: lowest.value, itemStyle: { color: quietMode ? "#636366" : "#30D158" } }] : []),
             ],
           },
-          markLine: { symbol: ["none", "none"], silent: false, animation: false, data: showGrid ? calculateGridOverlay(gridParams, quietMode) : [] },
+          markLine: { symbol: ["none", "none"], silent: false, animation: false, data: showGrid ? calculateGridOverlay(gridParams, quietMode, stockCode) : [] },
         },
         ...(showMa ? ma.map(({ name, data }) => {
           const color = quietMode
@@ -177,7 +195,7 @@ function KlineChart({ rows, gridParams, showGrid, showMa, showBoll, quietMode, o
     const resize = () => chart.resize();
     window.addEventListener("resize", resize);
     return () => { window.removeEventListener("resize", resize); chartInstanceRef.current = null; onChartInstance?.(null); chart.dispose(); };
-  }, [rows, gridParams, showGrid, showMa, showBoll, quietMode, onDataIndex, onChartInstance]);
+  }, [rows, gridParams, showGrid, showMa, showBoll, quietMode, stockCode, onDataIndex, onChartInstance]);
 
   // Effect 2: 网格 Overlay 增量更新 — 仅刷新 markLine，不重建图表
   useEffect(() => {
@@ -186,10 +204,10 @@ function KlineChart({ rows, gridParams, showGrid, showMa, showBoll, quietMode, o
     chart.setOption({
       series: [{
         name: "K线",
-        markLine: { symbol: ["none", "none"], silent: false, animation: false, data: showGrid ? calculateGridOverlay(gridParams, quietMode) : [] },
+        markLine: { symbol: ["none", "none"], silent: false, animation: false, data: showGrid ? calculateGridOverlay(gridParams, quietMode, stockCode) : [] },
       }],
     });
-  }, [gridParams, showGrid, quietMode]);
+  }, [gridParams, showGrid, quietMode, stockCode]);
 
   return <div className="market-echart" ref={chartRef} aria-label="网格融合 K线图，含均线与布林带" />;
 }
@@ -326,14 +344,36 @@ function VolumeMacdChart({ rows, quietMode, onDataIndex, onChartInstance }: { ro
   return <div className="market-echart market-volume-macd-chart" ref={chartRef} aria-label="成交量与MACD指标图，缩放窗口与K线同步" />;
 }
 
-export default function MarketPanel({ gridParams }: { gridParams: GridParams }) {
-  const [stockCode, setStockCode] = useState("300408");
-  const [kType, setKType] = useState<KType>("m15");
-  const [count, setCount] = useState(200);
-  const [countDraft, setCountDraft] = useState("200");
+export default function MarketPanel({
+  gridParams,
+  resetSignal = 0,
+  strategyStockCode = "",
+  onStockCodeChange,
+  selectedKType,
+  onKTypeChange,
+}: {
+  gridParams: GridParams;
+  resetSignal?: number;
+  strategyStockCode?: string;
+  onStockCodeChange?: (stockCode: string) => void;
+  selectedKType?: KType;
+  onKTypeChange?: (kType: KType) => void;
+}) {
+  const [stockCode, setStockCode] = useState(strategyStockCode || DEFAULT_MARKET_PREFERENCES.stockCode);
+  const [kType, setKType] = useState<KType>(selectedKType || DEFAULT_MARKET_PREFERENCES.kType);
+  const [count, setCount] = useState(DEFAULT_MARKET_PREFERENCES.count);
+  const [countDraft, setCountDraft] = useState(String(DEFAULT_MARKET_PREFERENCES.count));
   const [data, setData] = useState<TencentKlineResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [showStatus, setShowStatus] = useState(DEFAULT_MARKET_PREFERENCES.showStatus);
+  const [showGrid, setShowGrid] = useState(DEFAULT_MARKET_PREFERENCES.showGrid);
+  const [showMa, setShowMa] = useState(DEFAULT_MARKET_PREFERENCES.showMa);
+  const [showBoll, setShowBoll] = useState(DEFAULT_MARKET_PREFERENCES.showBoll);
+  const [quietMode, setQuietMode] = useState(DEFAULT_MARKET_PREFERENCES.quietMode);
+  const [showRsi, setShowRsi] = useState(DEFAULT_MARKET_PREFERENCES.showRsi);
+  const [showTable, setShowTable] = useState(DEFAULT_MARKET_PREFERENCES.showTable);
+  const [preferencesReady, setPreferencesReady] = useState(false);
   const tableRef = useRef<HTMLTableElement>(null);
   const requestIdRef = useRef(0);
   const requestControllerRef = useRef<AbortController | null>(null);
@@ -383,14 +423,111 @@ export default function MarketPanel({ gridParams }: { gridParams: GridParams }) 
     }
   }, []);
 
-  // 页面加载完成后，默认自动拉取一次 300408 的 15 分钟行情
+  // 页面加载后恢复上次的行情和图表偏好，并自动拉取行情。
   useEffect(() => {
-    const timer = window.setTimeout(() => { void fetchKlineData("300408", "m15", 200); }, 0);
+    const timer = window.setTimeout(() => {
+      let preferences = { ...DEFAULT_MARKET_PREFERENCES };
+      try {
+        const raw = window.localStorage.getItem(MARKET_PREFERENCES_STORAGE_KEY);
+        if (raw) {
+          const saved = JSON.parse(raw) as Record<string, unknown>;
+          const savedType = K_TYPES.some((item) => item.value === saved.kType) ? saved.kType as KType : preferences.kType;
+          const max = savedType.startsWith("m") ? 320 : 640;
+          preferences = {
+            stockCode: typeof saved.stockCode === "string" ? saved.stockCode : preferences.stockCode,
+            kType: savedType,
+            count: typeof saved.count === "number" && Number.isInteger(saved.count) && saved.count >= 1 && saved.count <= max ? saved.count : preferences.count,
+            showStatus: typeof saved.showStatus === "boolean" ? saved.showStatus : preferences.showStatus,
+            showGrid: typeof saved.showGrid === "boolean" ? saved.showGrid : preferences.showGrid,
+            showMa: typeof saved.showMa === "boolean" ? saved.showMa : preferences.showMa,
+            showBoll: typeof saved.showBoll === "boolean" ? saved.showBoll : preferences.showBoll,
+            quietMode: typeof saved.quietMode === "boolean" ? saved.quietMode : preferences.quietMode,
+            showRsi: typeof saved.showRsi === "boolean" ? saved.showRsi : preferences.showRsi,
+            showTable: typeof saved.showTable === "boolean" ? saved.showTable : preferences.showTable,
+          };
+        }
+      } catch {
+        window.localStorage.removeItem(MARKET_PREFERENCES_STORAGE_KEY);
+      }
+      setStockCode(preferences.stockCode);
+      setKType(preferences.kType);
+      setCount(preferences.count);
+      setCountDraft(String(preferences.count));
+      setShowStatus(preferences.showStatus);
+      setShowGrid(preferences.showGrid);
+      setShowMa(preferences.showMa);
+      setShowBoll(preferences.showBoll);
+      setQuietMode(preferences.quietMode);
+      setShowRsi(preferences.showRsi);
+      setShowTable(preferences.showTable);
+      setPreferencesReady(true);
+      void fetchKlineData(preferences.stockCode, preferences.kType, preferences.count);
+    }, 0);
     return () => { window.clearTimeout(timer); requestControllerRef.current?.abort(); };
   }, [fetchKlineData]);
 
+  useEffect(() => {
+    const nextCode = strategyStockCode.trim();
+    if (!preferencesReady || !nextCode || nextCode === stockCode) return;
+    const timer = window.setTimeout(() => {
+      setStockCode(nextCode);
+      void fetchKlineData(nextCode, kType, count);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [count, fetchKlineData, kType, preferencesReady, stockCode, strategyStockCode]);
+
+  useEffect(() => {
+    if (!preferencesReady) return;
+    window.localStorage.setItem(MARKET_PREFERENCES_STORAGE_KEY, JSON.stringify({
+      version: 1,
+      updatedAt: new Date().toISOString(),
+      stockCode,
+      kType,
+      count,
+      showStatus,
+      showGrid,
+      showMa,
+      showBoll,
+      quietMode,
+      showRsi,
+      showTable,
+    }));
+  }, [count, kType, preferencesReady, quietMode, showBoll, showGrid, showMa, showRsi, showStatus, showTable, stockCode]);
+
+  useEffect(() => {
+    if (resetSignal === 0) return;
+    const timer = window.setTimeout(() => {
+      window.localStorage.removeItem(MARKET_PREFERENCES_STORAGE_KEY);
+      requestControllerRef.current?.abort();
+      const nextStockCode = strategyStockCode.trim();
+      setStockCode(nextStockCode);
+      setKType(DEFAULT_MARKET_PREFERENCES.kType);
+      setCount(DEFAULT_MARKET_PREFERENCES.count);
+      setCountDraft(String(DEFAULT_MARKET_PREFERENCES.count));
+      setShowStatus(DEFAULT_MARKET_PREFERENCES.showStatus);
+      setShowGrid(DEFAULT_MARKET_PREFERENCES.showGrid);
+      setShowMa(DEFAULT_MARKET_PREFERENCES.showMa);
+      setShowBoll(DEFAULT_MARKET_PREFERENCES.showBoll);
+      setQuietMode(DEFAULT_MARKET_PREFERENCES.quietMode);
+      setShowRsi(DEFAULT_MARKET_PREFERENCES.showRsi);
+      setShowTable(DEFAULT_MARKET_PREFERENCES.showTable);
+      setData(null);
+      setError("");
+      if (nextStockCode) void fetchKlineData(nextStockCode, DEFAULT_MARKET_PREFERENCES.kType, DEFAULT_MARKET_PREFERENCES.count);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [fetchKlineData, resetSignal, strategyStockCode]);
+
+  useEffect(() => {
+    if (selectedKType && selectedKType !== kType) {
+      setKType(selectedKType);
+      if (stockCode) void fetchKlineData(stockCode, selectedKType, count);
+    }
+  }, [selectedKType]);
+
   const handleKTypeChange = (newType: KType) => {
     setKType(newType);
+    if (onKTypeChange) onKTypeChange(newType);
     void fetchKlineData(stockCode, newType, count);
   };
 
@@ -415,20 +552,12 @@ export default function MarketPanel({ gridParams }: { gridParams: GridParams }) 
     row.classList.add("market-row-selected");
   }, []);
 
-  const [showStatus, setShowStatus] = useState(false);
-  const [showGrid, setShowGrid] = useState(true);
-  const [showMa, setShowMa] = useState(true);
-  const [showBoll, setShowBoll] = useState(false);
-  const [quietMode, setQuietMode] = useState(true);
-  const [showRsi, setShowRsi] = useState(false);
-  const [showTable, setShowTable] = useState(false);
-
   return <section className="gc-panel gc-market-panel" aria-label="腾讯财经行情">
     <div className="gc-section-heading gc-section-heading-row">
       <div><span>03</span><h2>K &amp; Grid</h2></div>
     </div>
     <div className="market-controls">
-      <label><span>股票代码</span><input value={stockCode} onChange={(event) => setStockCode(event.target.value)} onKeyUp={(event) => { if (event.key === "Enter") void fetchKlineData(stockCode, kType, count); }} placeholder="300408" /></label>
+      <label><span>证券代码</span><input value={stockCode} onChange={(event) => { setStockCode(event.target.value); onStockCodeChange?.(event.target.value); }} onKeyUp={(event) => { if (event.key === "Enter") void fetchKlineData(stockCode, kType, count); }} placeholder="如 515400" inputMode="text" /></label>
       <div className="market-period-control">
         <span>周期</span>
         <div className="market-period-tabs" role="group" aria-label="K线周期">
@@ -462,7 +591,7 @@ export default function MarketPanel({ gridParams }: { gridParams: GridParams }) 
 
       <div className="market-chart-panel">
         <h3>K</h3>
-        <KlineChart rows={data.kline} gridParams={gridParams} showGrid={showGrid} showMa={showMa} showBoll={showBoll} quietMode={quietMode} onDataIndex={scrollTableTo} onChartInstance={handleKlineChartInstance} />
+        <KlineChart rows={data.kline} gridParams={gridParams} showGrid={showGrid} showMa={showMa} showBoll={showBoll} quietMode={quietMode} stockCode={data.stockCode} onDataIndex={scrollTableTo} onChartInstance={handleKlineChartInstance} />
       </div>
 
       <div className="market-chart-panel">
